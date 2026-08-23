@@ -1,5 +1,5 @@
 import { getStatus } from "../../../services/monitorService.js";
-import { getScanRunnerState, startBackgroundScan } from "../../../lib/scanRunner.js";
+import { getScanRunnerState, runForegroundScan, startBackgroundScan } from "../../../lib/scanRunner.js";
 import { logger } from "../../../lib/logger.js";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +37,13 @@ export async function POST(request) {
     }
 
     const body = await request.json().catch(() => ({}));
+
+    // Vercel serverless cannot keep working after the response; run the scan in-request.
+    if (process.env.VERCEL) {
+      const result = await runForegroundScan(body);
+      return Response.json(result);
+    }
+
     const result = startBackgroundScan(body);
     return Response.json(result);
   } catch (error) {

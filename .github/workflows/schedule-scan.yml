@@ -2,7 +2,7 @@ name: Scheduled Scan
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 jobs:
@@ -10,11 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
-      SCAN_API_SECRET: ${{ secrets.SCAN_API_SECRET }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
-      - name: Send scheduled scan request
+      - name: Trigger Vercel cron tick (scan + automation)
         run: |
-          curl -X POST "https://$WEBSITE_URL/api/scan" \
-            -H "x-scan-secret: $SCAN_API_SECRET" \
-            -H "Content-Type: application/json" \
-            -d '{}'
+          curl -fsS "https://${WEBSITE_URL}/api/cron/tick" \
+            -H "Authorization: Bearer ${CRON_SECRET}"

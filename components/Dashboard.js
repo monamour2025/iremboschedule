@@ -390,6 +390,15 @@ export default function Dashboard({
         throw new Error(payload.message || payload.error || "Scan failed to start");
       }
 
+      if (payload.status === "COMPLETED") {
+        await refresh({ includeSchedules: true, includeExtras: true });
+        return;
+      }
+
+      if (payload.status === "FAILED") {
+        throw new Error(payload.error || "Scan failed");
+      }
+
       const deadline = Date.now() + 10 * 60 * 1000;
       while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 2500));
