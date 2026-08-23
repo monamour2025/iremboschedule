@@ -1,3 +1,11 @@
+# Automatic Irembo schedule scanning every 5 minutes.
+# Vercel Hobby cannot run sub-daily crons — GitHub Actions triggers /api/cron/tick instead.
+#
+# REQUIRED GitHub repo secrets (Settings → Secrets and variables → Actions):
+#   WEBSITE_URL = iremboschedule-seven.vercel.app   (no https://)
+#   CRON_SECRET = same as Vercel production CRON_SECRET
+# See .github/SCHEDULED_SCAN.md for setup and troubleshooting.
+
 name: Scheduled Scan
 
 on:
@@ -5,24 +13,73 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
+concurrency:
+  group: scheduled-scan
+  cancel-in-progress: false
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
-      CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
-      - name: Trigger scan + automation tick
+      - name: Validate secrets and trigger scan
+        env:
+          WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
-          if [ -z "${WEBSITE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
-            echo "Missing WEBSITE_URL or CRON_SECRET GitHub secrets"
+
+          SECRETS_URL="https://github.com/monamour2025/iremboschedule/settings/secrets/actions"
+          MISSING=""
+
+          if [ -z "${WEBSITE_URL:-}" ]; then
+            MISSING="${MISSING} WEBSITE_URL"
+          fi
+          if [ -z "${CRON_SECRET:-}" ]; then
+            MISSING="${MISSING} CRON_SECRET"
+          fi
+
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing GitHub repository secrets:${MISSING}"
+            echo ""
+            echo "Add secrets here: ${SECRETS_URL}"
+            echo ""
+            echo "  WEBSITE_URL = iremboschedule-seven.vercel.app"
+            echo "  CRON_SECRET = same value as CRON_SECRET on Vercel production"
+            echo ""
+            echo "See .github/SCHEDULED_SCAN.md in the repo for full instructions."
             exit 1
           fi
+
           HOST="${WEBSITE_URL#https://}"
           HOST="${HOST#http://}"
           HOST="${HOST%/}"
-          curl -fsS --max-time 290 \
+
+          echo "Calling https://${HOST}/api/cron/tick ..."
+          HTTP_CODE=$(curl -sS -w "%{http_code}" -o /tmp/cron-response.json --max-time 290 \
             "https://${HOST}/api/cron/tick" \
-            -H "Authorization: Bearer ${CRON_SECRET}"
+            -H "Authorization: Bearer ${CRON_SECRET}" || echo "000")
+
+          echo "HTTP status: ${HTTP_CODE}"
+          cat /tmp/cron-response.json || true
+          echo ""
+
+          if [ "$HTTP_CODE" = "401" ]; then
+            echo "::error::401 Unauthorized — CRON_SECRET on GitHub does not match Vercel production."
+            exit 1
+          fi
+          if [ "$HTTP_CODE" = "503" ]; then
+            echo "::error::503 — CRON_SECRET is not set on Vercel. Add it in Vercel env and redeploy."
+            exit 1
+          fi
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Cron tick failed with HTTP ${HTTP_CODE}"
+            exit 1
+          fi
+
+          if ! grep -q '"ok"[[:space:]]*:[[:space:]]*true' /tmp/cron-response.json; then
+            echo "::error::Response was HTTP 200 but ok was not true"
+            exit 1
+          fi
+
+          echo "Scheduled scan completed successfully."
