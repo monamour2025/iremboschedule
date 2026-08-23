@@ -1,0 +1,1 @@
+ALTER TABLE "MonitorSettings" ADD COLUMN IF NOT EXISTS "alertWebhookUrl" TEXT NOT NULL DEFAULT '';

@@ -14,11 +14,13 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "scan": "node worker/scheduler.js --once",
-    "worker": "node worker/scheduler.js"
+    "worker": "node worker/scheduler.js",
+    "automation:worker": "node worker/automationWorker.js"
   },
   "dependencies": {
     "@prisma/client": "6.10.1",
     "axios": "1.10.0",
+    "bullmq": "5.56.9",
     "next": "15.3.8",
     "prisma": "6.10.1",
     "react": "19.1.0",

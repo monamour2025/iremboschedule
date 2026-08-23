@@ -1,5 +1,23 @@
-import { runScan } from "../../../services/monitorService.js";
+import { getStatus } from "../../../services/monitorService.js";
+import { getScanRunnerState, startBackgroundScan } from "../../../lib/scanRunner.js";
 import { logger } from "../../../lib/logger.js";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+export async function GET() {
+  try {
+    const [status, runner] = await Promise.all([getStatus(), Promise.resolve(getScanRunnerState())]);
+    return Response.json({
+      ok: true,
+      ...runner,
+      lastScanAt: status.lastScanAt
+    });
+  } catch (error) {
+    logger.error("Scan status request failed", { message: error.message });
+    return Response.json({ ok: false, error: "SCAN_STATUS_FAILED" }, { status: 500 });
+  }
+}
 
 export async function POST(request) {
   try {
@@ -7,12 +25,19 @@ export async function POST(request) {
     if (scanSecret) {
       const providedSecret = request.headers.get("x-scan-secret");
       if (providedSecret !== scanSecret) {
-        return Response.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+        return Response.json(
+          {
+            ok: false,
+            error: "UNAUTHORIZED",
+            message: "Set x-scan-secret header or remove SCAN_API_SECRET for dashboard scans."
+          },
+          { status: 401 }
+        );
       }
     }
 
     const body = await request.json().catch(() => ({}));
-    const result = await runScan(body);
+    const result = startBackgroundScan(body);
     return Response.json(result);
   } catch (error) {
     logger.error("Scan failed", { message: error.message });

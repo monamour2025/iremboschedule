@@ -1,5 +1,8 @@
+import { loadEnvFiles } from "../lib/loadEnv.js";
 import { runScan } from "../services/monitorService.js";
 import { logger } from "../lib/logger.js";
+
+loadEnvFiles();
 
 let timer = null;
 let running = false;

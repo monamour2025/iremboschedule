@@ -8,7 +8,7 @@ datasource db {
 }
 
 model Schedule {
-  scheduleId        String   @id
+  scheduleId        String    @id
   center            String?
   location          String?
   category          String?
@@ -16,9 +16,10 @@ model Schedule {
   endDateTime       DateTime?
   remainingCapacity Int?
   maximumCapacity   Int?
+  firstDetectedAt   DateTime?
   lastSeen          DateTime
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 model Snapshot {
@@ -33,4 +34,122 @@ model Change {
   oldValue   String?
   newValue   String?
   createdAt  DateTime @default(now())
+}
+
+model Notification {
+  id         Int      @id @default(autoincrement())
+  scheduleId String?
+  channel    String
+  type       String
+  title      String
+  message    String
+  payload    String?
+  status     String
+  error      String?
+  createdAt  DateTime @default(now())
+}
+
+model MonitorSettings {
+  id            Int      @id @default(1)
+  autoNotifyAll Boolean  @default(true)
+  alertEmail       String   @default("")
+  alertPhone       String   @default("")
+  alertWebhookUrl  String   @default("")
+  updatedAt     DateTime @updatedAt
+}
+
+model DetectionAlertRule {
+  id         Int      @id @default(autoincrement())
+  name       String
+  categories String
+  startHour  Int
+  endHour    Int
+  message    String
+  channels   String
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Applicant {
+  id                 Int       @id @default(autoincrement())
+  fullName           String
+  nationalIdEnc      String
+  nationalIdHash     String    @unique
+  dateOfBirth        DateTime?
+  phone              String
+  email              String    @default("")
+  licenseCategory    String
+  preferredLocation  String    @default("")
+  examType           String    @default("PRACTICAL")
+  examCenter         String?
+  examDate           DateTime?
+  examTime           String?
+  preferredExamTime  String?
+  assignedScheduleId String?
+  matchedExamScheduleId String?
+  lastFailedScheduleId String?
+  entityId           String?
+  provisionalLicenseNumber String?
+  provisionalLicenseExpiry String?
+  applicationType              String    @default("FIRST_LICENCE")
+  existingLicenseId            String?
+  existingLicenseNumber        String?
+  existingLicenseCategory      String?
+  existingLicenseCategories    String?
+  existingLicenseExpiry        DateTime?
+  existingLicenseIssueDate     DateTime?
+  existingLicenseStatus        String?
+  existingLicenseDocumentType  String?
+  existingLicenseApplicationNumber String?
+  existingLicenseVehicleClass  String?
+  existingLicenseFetchedAt      DateTime?
+  requestedLicenseCategory     String?
+  status             String    @default("WAITING_FOR_SLOT")
+  lastError          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  applications       Application[]
+  automationLogs     AutomationLog[]
+  batchId            Int?
+  batch              AutomationBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+}
+
+model AutomationBatch {
+  id          Int         @id @default(autoincrement())
+  name        String
+  scheduledAt DateTime
+  status      String      @default("SCHEDULED")
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  applicants  Applicant[]
+}
+
+model Application {
+  id                 Int      @id @default(autoincrement())
+  applicantId        Int
+  applicant          Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  iremboEntityId     String?
+  temporaryBookingId String?
+  examScheduleId     String?
+  applicationNumber  String?
+  amount             Int?
+  status             String   @default("PENDING")
+  responseData       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model AutomationLog {
+  id              Int      @id @default(autoincrement())
+  applicantId     Int
+  applicant       Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  action          String
+  requestPayload  String?
+  responsePayload String?
+  success         Boolean  @default(false)
+  errorMessage    String?
+  createdAt       DateTime @default(now())
 }

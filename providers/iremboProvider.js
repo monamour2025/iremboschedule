@@ -1,10 +1,53 @@
 import axios from "axios";
+import { getRuntimeIremboCookie } from "../lib/iremboBrowserSession.js";
+import { applyIremboResponseCookies, mergeCookieString, warmIremboSession } from "../lib/iremboSession.js";
+import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
+import { extractBookableScheduleId, extractGuidFromRow } from "../lib/scheduleIds.js";
+import { parseTimeRange, resolveRowStartDateTime, formatScheduleTimeLocal } from "../lib/scheduleTime.js";
+import { centerMatchesScanLocation, getIremboScanDistrictForCenter, getMonitorPriorityConfig, isCenterLocationValid, resolveScheduleLocation } from "../lib/monitorPriority.js";
+import { examCentersMatch, preferCanonicalCenter, centerSearchTerms } from "../lib/examCenters.js";
 
-const IREMBO_API_URL =
-  "https://irembo.gov.rw/irembo/rest/public/police/v2/request/all-schedules";
+const IREMBO_API_BASE =
+  "https://irembo.gov.rw/irembo/rest/public/police/v2/request";
+const IREMBO_API_URL = `${IREMBO_API_BASE}/all-schedules`;
 
 let sessionCookie = "";
+let encryptionKeys = null;
+
+export function getEncryptionKeys() {
+  if (encryptionKeys) {
+    return encryptionKeys;
+  }
+
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "der" },
+    privateKeyEncoding: { type: "pkcs8", format: "der" }
+  });
+
+  encryptionKeys = {
+    publicKeyB64: publicKey.toString("base64"),
+    privateKey: crypto.createPrivateKey({ key: privateKey, format: "der", type: "pkcs8" })
+  };
+
+  return encryptionKeys;
+}
+
+function decryptResponseData(encryptedData, privateKey) {
+  const [encryptedSecret, encryptedPayload] = encryptedData.split("#");
+  const secretBuffer = crypto.privateDecrypt(
+    { key: privateKey, padding: crypto.constants.RSA_PKCS1_PADDING },
+    Buffer.from(encryptedSecret, "base64")
+  );
+  const secretKey = JSON.parse(secretBuffer.toString("utf8"));
+  const combined = Buffer.from(encryptedPayload, "base64");
+  const iv = combined.subarray(0, 16);
+  const ciphertext = combined.subarray(16);
+  const decipher = crypto.createDecipheriv("aes-256-cbc", Buffer.from(secretKey, "utf8"), iv);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  return JSON.parse(decrypted.toString("utf8"));
+}
 
 const DEFAULT_LOCATIONS = [
   "Bugesera",
@@ -19,6 +62,7 @@ const DEFAULT_LOCATIONS = [
   "Karongi",
   "Kayonza",
   "Kicukiro",
+  "Busanza",
   "Kirehe",
   "Muhanga",
   "Musanze",
@@ -39,7 +83,7 @@ const DEFAULT_LOCATIONS = [
   "Rwamagana"
 ];
 
-const DEFAULT_CATEGORIES = ["A", "B", "C", "D", "E", "F"];
+const DEFAULT_CATEGORIES = ["A", "A1", "B", "B1", "C", "D", "D1", "E", "F"];
 
 function uniqueValues(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
@@ -68,14 +112,20 @@ export function getMonitoredLocations(options = {}) {
   }
 
   if (Array.isArray(options.locations) && options.locations.length > 0) {
-    return uniqueValues(options.locations);
+    return withPriorityLocation(uniqueValues(options.locations));
   }
 
-  if (process.env.IREMBO_LOCATIONS) {
-    return uniqueValues(process.env.IREMBO_LOCATIONS.split(","));
+  if (process.env.IREMBO_LOCATIONS?.trim()) {
+    return withPriorityLocation(uniqueValues(process.env.IREMBO_LOCATIONS.split(",")));
   }
 
-  return DEFAULT_LOCATIONS;
+  return withPriorityLocation(DEFAULT_LOCATIONS);
+}
+
+function withPriorityLocation(locations) {
+  const priority = getMonitorPriorityConfig();
+  const scanDistrict = getIremboScanDistrictForCenter(priority.center) || priority.location;
+  return uniqueValues([...locations, scanDistrict].filter(Boolean));
 }
 
 export function getMonitoredCategories(options = {}) {
@@ -87,11 +137,16 @@ export function getMonitoredCategories(options = {}) {
     return uniqueValues(options.categories);
   }
 
-  if (process.env.IREMBO_CATEGORIES) {
-    return uniqueValues(process.env.IREMBO_CATEGORIES.split(","));
+  if (process.env.IREMBO_CATEGORIES?.trim()) {
+    return withPriorityCategory(uniqueValues(process.env.IREMBO_CATEGORIES.split(",")));
   }
 
-  return DEFAULT_CATEGORIES;
+  return withPriorityCategory(DEFAULT_CATEGORIES);
+}
+
+function withPriorityCategory(categories) {
+  const priority = getMonitorPriorityConfig();
+  return uniqueValues([...categories, priority.category].filter(Boolean));
 }
 
 function firstValue(source, keys) {
@@ -123,6 +178,9 @@ function pickRows(payload) {
   if (Array.isArray(payload)) {
     return payload;
   }
+  if (Array.isArray(payload?.schedules)) {
+    return payload.schedules;
+  }
   if (Array.isArray(payload?.data)) {
     return payload.data;
   }
@@ -144,20 +202,47 @@ function pickRows(payload) {
   return [];
 }
 
-function normalizeSchedule(row, sourceLocation, sourceCategory) {
-  const rawScheduleId = String(
-    firstValue(row, ["scheduleId", "id", "code", "scheduleCode", "slotId"]) || ""
-  ).trim();
-  const location = firstValue(row, ["location", "district", "place"]) || sourceLocation;
-  const center = firstValue(row, ["center", "testCenter", "examCenter", "drivingTestCenter", "site"]);
-  const category = firstValue(row, ["category", "licenseCategory"]) || sourceCategory;
-  const startDateTime = asDate(firstValue(row, ["startDateTime", "startTime", "startDate", "date"]));
-  const fallbackScheduleId = [category, location, center, startDateTime?.toISOString()]
+function buildScheduleId({ category, rawScheduleId, fallbackScheduleId, startDateTime, timeLabel }) {
+  const base = rawScheduleId ? `${category}:${rawScheduleId}` : fallbackScheduleId;
+  const timeKey = timeLabel || (startDateTime ? formatScheduleTimeLocal(startDateTime) : "");
+  if (!timeKey || !base) {
+    return base;
+  }
+  if (base.includes(`@${timeKey}`)) {
+    return base;
+  }
+  return `${base}@${timeKey}`;
+}
+
+function normalizeSchedule(row, sourceLocation, sourceCategory, hints = {}) {
+  const bookableId = extractBookableScheduleId(row);
+  const guid = bookableId || extractGuidFromRow(row);
+  const rawScheduleId = guid
+    ? guid
+    : String(firstValue(row, ["scheduleId", "id", "code", "scheduleCode", "slotId"]) || "").trim();
+  const rowCenter = firstValue(row, ["center", "testCenter", "examCenter", "drivingTestCenter", "site"]);
+  const center = preferCanonicalCenter(hints.testCenter || rowCenter);
+  const location =
+    resolveScheduleLocation(
+      center,
+      firstValue(row, ["locationName", "location", "district", "place"]) || sourceLocation
+    ) || sourceLocation;
+  const category = firstValue(row, ["categoryOrLane", "category", "licenseCategory"]) || sourceCategory;
+  const startDateTime = resolveRowStartDateTime(row, hints);
+  const timeLabel = hints.startTime || firstValue(row, ["startTime", "time", "examTime"]);
+  const fallbackScheduleId = [category, location, center, startDateTime?.toISOString(), timeLabel]
     .filter(Boolean)
     .join(":");
 
   return {
-    scheduleId: rawScheduleId ? `${category}:${rawScheduleId}` : fallbackScheduleId,
+    scheduleId: buildScheduleId({
+      category,
+      rawScheduleId,
+      fallbackScheduleId,
+      startDateTime,
+      timeLabel
+    }),
+    iremboScheduleGuid: guid || null,
     center,
     location,
     category,
@@ -170,6 +255,22 @@ function normalizeSchedule(row, sourceLocation, sourceCategory) {
       firstValue(row, ["maximumCapacity", "maxCapacity", "totalSlots", "capacity"])
     )
   };
+}
+
+function keepNormalizedSchedule(schedule, scanLocation) {
+  if (!schedule?.scheduleId || !isCenterLocationValid(schedule)) {
+    return false;
+  }
+  const scan = String(scanLocation || "").trim().toLowerCase();
+  const resolved = String(schedule.location || "").trim().toLowerCase();
+  if (!scan || !resolved) {
+    return true;
+  }
+  return scan === resolved;
+}
+
+function scheduleDedupeKey(schedule) {
+  return `${schedule.scheduleId}|${schedule.startDateTime?.toISOString() || ""}`;
 }
 
 function updateCookie(headers) {
@@ -193,14 +294,79 @@ function publicErrorPayload(payload) {
   };
 }
 
-async function requestWithRetry(params, requestHeaders, attempt = 1) {
+function defaultRequestHeaders() {
+  return {
+    Accept: "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    Origin: "https://irembo.gov.rw",
+    Referer: "https://irembo.gov.rw/home/citizen/all_services",
+    "User-Agent":
+      process.env.IREMBO_USER_AGENT ||
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+  };
+}
+
+function assertSuccessfulPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Irembo API returned an empty response");
+  }
+
+  if (payload.status === false) {
+    const message = String(payload.message || "Irembo API request failed").trim();
+    throw new Error(
+      `Irembo API rejected the request (${payload.responseCode || "UNKNOWN"}): ${message}`
+    );
+  }
+}
+
+let sessionBootstrapped = false;
+
+async function ensureSession() {
+  await warmIremboSession(false);
+  sessionBootstrapped = true;
+}
+
+export async function getIremboSessionHeaders() {
+  await ensureSession();
+  const cookie = mergeCookieString(getRuntimeIremboCookie() || sessionCookie);
+  return {
+    ...defaultRequestHeaders(),
+    ...(cookie ? { Cookie: cookie } : {})
+  };
+}
+
+export function captureIremboResponseCookies(headers) {
+  updateCookie(headers);
+  applyIremboResponseCookies(headers);
+}
+
+function unwrapPayload(payload) {
+  assertSuccessfulPayload(payload);
+
+  if (payload.responseEncrypted && typeof payload.data === "string") {
+    return decryptResponseData(payload.data, getEncryptionKeys().privateKey);
+  }
+
+  return payload.data ?? payload;
+}
+
+async function requestWithRetry(params, requestHeaders, attempt = 1, endpoint = "all-schedules", options = {}) {
+  const timeoutMs = Number(
+    options.timeoutMs ?? requestHeaders?.timeoutMs ?? process.env.IREMBO_REQUEST_TIMEOUT_MS ?? 8000
+  );
+  const maxAttempts = Number(options.maxAttempts ?? 3);
   try {
-    const response = await axios.get(IREMBO_API_URL, {
+    await ensureSession();
+    const keys = getEncryptionKeys();
+    const { timeoutMs: _ignored, ...headersForRequest } = requestHeaders || {};
+
+    const response = await axios.get(`${IREMBO_API_BASE}/${endpoint}`, {
       params,
-      timeout: Number(process.env.IREMBO_REQUEST_TIMEOUT_MS || 8000),
+      timeout: timeoutMs,
       headers: {
-        Accept: "application/json",
-        ...requestHeaders,
+        ...defaultRequestHeaders(),
+        ...headersForRequest,
+        RPK: keys.publicKeyB64,
         ...(sessionCookie ? { Cookie: sessionCookie } : {})
       },
       validateStatus: (status) => status >= 200 && status < 500
@@ -217,9 +383,9 @@ async function requestWithRetry(params, requestHeaders, attempt = 1) {
       );
     }
 
-    return response.data;
+    return unwrapPayload(response.data);
   } catch (error) {
-    if (attempt >= 3) {
+    if (attempt >= maxAttempts) {
       throw error;
     }
     const delayMs = 500 * attempt;
@@ -229,7 +395,182 @@ async function requestWithRetry(params, requestHeaders, attempt = 1) {
       message: error.message
     });
     await new Promise((resolve) => setTimeout(resolve, delayMs));
-    return requestWithRetry(params, requestHeaders, attempt + 1);
+    return requestWithRetry(params, requestHeaders, attempt + 1, endpoint, options);
+  }
+}
+
+export async function queryPoliceRequest(endpoint, params = {}, extraHeaders = {}, options = {}) {
+  const baseHeaders = {
+    service: process.env.IREMBO_SERVICE || "PRACTICAL_EXAM",
+    beneficiaries: process.env.IREMBO_BENEFICIARIES || "PrivateCandidate",
+    ...extraHeaders
+  };
+  return requestWithRetry(params, baseHeaders, 1, endpoint, options);
+}
+
+function uniqueScheduleDates(rows) {
+  const dates = new Set();
+  for (const { row } of rows) {
+    const startDateTime = resolveRowStartDateTime(row);
+    if (startDateTime) {
+      dates.add(startDateTime.toISOString().slice(0, 10));
+      continue;
+    }
+    const datePart = firstValue(row, ["scheduleDate", "selectedDate", "startDate", "date", "examDate"]);
+    if (datePart) {
+      const parsed = new Date(datePart);
+      if (!Number.isNaN(parsed.getTime())) {
+        dates.add(parsed.toISOString().slice(0, 10));
+      }
+    }
+  }
+  return [...dates].sort();
+}
+
+async function expandSchedulesByTimeRanges(category, location, locationRows) {
+  const expandTimes = process.env.IREMBO_EXPAND_TIME_SLOTS !== "false";
+  if (!expandTimes || locationRows.length === 0) {
+    return locationRows
+      .map(({ row, sourceLocation, sourceCategory }) =>
+        normalizeSchedule(row, sourceLocation, sourceCategory)
+      )
+      .filter((schedule) => keepNormalizedSchedule(schedule, location));
+  }
+
+  const schedules = [];
+  const seen = new Set();
+  const headers = { category, location };
+
+  const dates = uniqueScheduleDates(locationRows);
+  for (const selectedDate of dates) {
+    try {
+      const timeRanges =
+        (await queryPoliceRequest("time-ranges", { selectedDate }, headers)) || [];
+      const centers = (await queryPoliceRequest("test-centers", { selectedDate }, headers)) || [];
+
+      for (const range of timeRanges) {
+        const { startTime, endTime } = parseTimeRange(range);
+        for (const testCenter of centers.filter(Boolean)) {
+          if (!centerMatchesScanLocation(testCenter, location)) {
+            continue;
+          }
+          const rows = await queryFilteredSchedules({
+            category,
+            location,
+            page: 1,
+            limit: 20,
+            selectedDate,
+            startTime,
+            endTime,
+            testCenter
+          });
+
+          for (const row of rows) {
+            const rowCategory = firstValue(row, ["categoryOrLane", "category", "licenseCategory"]);
+            if (rowCategory && String(rowCategory).toUpperCase() !== String(category).toUpperCase()) {
+              continue;
+            }
+            const rowCenter = firstValue(row, [
+              "center",
+              "testCenter",
+              "examCenter",
+              "drivingTestCenter",
+              "site"
+            ]);
+            if (testCenter && rowCenter && !examCentersMatch(rowCenter, testCenter)) {
+              continue;
+            }
+            const remainingCapacity = asInteger(
+              firstValue(row, ["remainingCapacity", "remainingSlots", "availableSlots", "availablePlaces"])
+            );
+            if (remainingCapacity !== null && remainingCapacity <= 0) {
+              continue;
+            }
+            const schedule = normalizeSchedule(row, location, category, {
+              selectedDate,
+              startTime,
+              testCenter: testCenter || rowCenter
+            });
+            const dedupeKey = scheduleDedupeKey(schedule);
+            if (!schedule.scheduleId || seen.has(dedupeKey)) {
+              continue;
+            }
+            if (!keepNormalizedSchedule(schedule, location)) {
+              continue;
+            }
+            seen.add(dedupeKey);
+            schedules.push(schedule);
+          }
+        }
+      }
+    } catch (error) {
+      logger.warn("Could not expand schedule times for location", {
+        category,
+        location,
+        selectedDate,
+        message: error.message
+      });
+    }
+  }
+
+  if (schedules.length === 0) {
+    for (const { row, sourceLocation, sourceCategory } of locationRows) {
+      const schedule = normalizeSchedule(row, sourceLocation, sourceCategory);
+      const dedupeKey = scheduleDedupeKey(schedule);
+      if (!schedule.scheduleId || seen.has(dedupeKey)) {
+        continue;
+      }
+      if (!keepNormalizedSchedule(schedule, location)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+      schedules.push(schedule);
+    }
+  }
+
+  return schedules;
+}
+
+async function appendPriorityCenterSchedules(schedulesById, categories) {
+  const priority = getMonitorPriorityConfig();
+  const location = getIremboScanDistrictForCenter(priority.center) || priority.location;
+  const selectedDate = new Date().toISOString().slice(0, 10);
+
+  for (const category of categories) {
+    for (const testCenter of centerSearchTerms(priority.center)) {
+      try {
+        const rows = await queryFilteredSchedules({
+          category,
+          location,
+          page: 1,
+          limit: 50,
+          selectedDate,
+          testCenter
+        });
+
+        for (const row of rows) {
+          const remainingCapacity = asInteger(
+            firstValue(row, ["remainingCapacity", "remainingSlots", "availableSlots", "availablePlaces"])
+          );
+          if (remainingCapacity !== null && remainingCapacity <= 0) {
+            continue;
+          }
+          const schedule = normalizeSchedule(row, location, category, {
+            selectedDate,
+            testCenter: preferCanonicalCenter(testCenter)
+          });
+          if (schedule.scheduleId && keepNormalizedSchedule(schedule, location)) {
+            schedulesById.set(schedule.scheduleId, schedule);
+          }
+        }
+      } catch (error) {
+        logger.warn("Priority center scan failed", {
+          category,
+          testCenter,
+          message: error.message
+        });
+      }
+    }
   }
 }
 
@@ -237,7 +578,7 @@ export async function fetchSchedules(options = {}) {
   const firstPage = options.page || 1;
   const limit = options.limit || Number(process.env.IREMBO_PAGE_LIMIT || 50);
   const maxPages = options.maxPages || Number(process.env.IREMBO_MAX_PAGES || 20);
-  const concurrency = Number(options.concurrency || process.env.IREMBO_LOCATION_CONCURRENCY || 4);
+  const concurrency = Number(options.concurrency || process.env.IREMBO_LOCATION_CONCURRENCY || 10);
   const locations = getMonitoredLocations(options);
   const categories = getMonitoredCategories(options);
   const baseHeaders = {
@@ -287,17 +628,19 @@ export async function fetchSchedules(options = {}) {
       });
     }
 
-    return locationRows;
+    return { category, location, locationRows };
   });
 
   const schedulesById = new Map();
 
-  for (const schedule of locationResults
-    .flat()
-    .map(({ row, sourceLocation, sourceCategory }) => normalizeSchedule(row, sourceLocation, sourceCategory))
-    .filter((schedule) => schedule.scheduleId)) {
-    schedulesById.set(schedule.scheduleId, schedule);
+  for (const { category, location, locationRows } of locationResults) {
+    const expanded = await expandSchedulesByTimeRanges(category, location, locationRows);
+    for (const schedule of expanded.filter((row) => row.scheduleId)) {
+      schedulesById.set(schedule.scheduleId, schedule);
+    }
   }
+
+  await appendPriorityCenterSchedules(schedulesById, categories);
 
   const schedules = [...schedulesById.values()];
   schedules.scanMeta = {
@@ -309,4 +652,60 @@ export async function fetchSchedules(options = {}) {
   };
 
   return schedules;
+}
+
+export async function queryFilteredSchedules({
+  category,
+  location,
+  page = 1,
+  limit = 50,
+  selectedDate,
+  startTime,
+  endTime,
+  testCenter
+}) {
+  const { buildProfileRequestHeaders } = await import("../lib/iremboProfileSession.js");
+  const params = {
+    page,
+    limit,
+    ...(selectedDate ? { selectedDate } : {}),
+    ...(startTime ? { startTime } : {}),
+    ...(endTime ? { endTime } : {}),
+    ...(testCenter ? { testCenter } : {})
+  };
+  const profileHeaders = await buildProfileRequestHeaders({
+    service: process.env.IREMBO_SERVICE || "PRACTICAL_EXAM",
+    beneficiaries: process.env.IREMBO_BENEFICIARIES || "PrivateCandidate",
+    category,
+    location,
+    ...(selectedDate ? { scheduleDate: selectedDate } : {})
+  });
+
+  await ensureSession();
+  const keys = getEncryptionKeys();
+  const cookie = mergeCookieString(getRuntimeIremboCookie() || sessionCookie);
+
+  const response = await axios.get(`${IREMBO_API_BASE}/schedules`, {
+    params,
+    timeout: Number(process.env.IREMBO_REQUEST_TIMEOUT_MS || 15000),
+    headers: {
+      ...profileHeaders,
+      RPK: keys.publicKeyB64,
+      ...(cookie ? { Cookie: cookie } : {})
+    },
+    validateStatus: (status) => status >= 200 && status < 500
+  });
+
+  updateCookie(response.headers);
+
+  if (response.status >= 400) {
+    const publicError = publicErrorPayload(response.data);
+    throw new Error(
+      `Irembo schedules API returned HTTP ${response.status}${
+        publicError?.message ? `: ${publicError.message}` : ""
+      }`
+    );
+  }
+
+  return pickRows(unwrapPayload(response.data));
 }
