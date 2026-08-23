@@ -21,9 +21,10 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const scanSecret = process.env.SCAN_API_SECRET;
+    const scanSecret = String(process.env.SCAN_API_SECRET || "").trim();
+    // Only enforce when explicitly configured. Empty/whitespace must not block Scan now.
     if (scanSecret) {
-      const providedSecret = request.headers.get("x-scan-secret");
+      const providedSecret = String(request.headers.get("x-scan-secret") || "").trim();
       if (providedSecret !== scanSecret) {
         return Response.json(
           {

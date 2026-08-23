@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+scripts/.probe-cache
+node_modules
+.next
