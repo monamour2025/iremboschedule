@@ -56,7 +56,7 @@ jobs:
           HOST="${HOST%/}"
 
           echo "Calling https://${HOST}/api/cron/tick ..."
-          HTTP_CODE=$(curl -sS -w "%{http_code}" -o /tmp/cron-response.json --max-time 290 \
+          HTTP_CODE=$(curl -sS -w "%{http_code}" -o /tmp/cron-response.json --max-time 270 \
             "https://${HOST}/api/cron/tick" \
             -H "Authorization: Bearer ${CRON_SECRET}" || echo "000")
 

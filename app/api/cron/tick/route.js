@@ -8,7 +8,8 @@ export const maxDuration = 300;
 export async function GET(request) {
   try {
     assertCronAccess(request);
-    const result = await runAutomationTick({ includeScan: true });
+    process.env.IREMBO_EXPAND_TIME_SLOTS = "false";
+    const result = await runAutomationTick({ includeScan: true, cronScan: true });
     logger.info("Cron tick completed", {
       scanned: result.scanned,
       scanOk: result.scan?.ok,
