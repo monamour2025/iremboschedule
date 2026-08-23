@@ -8,11 +8,21 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
-      - name: Trigger Vercel cron tick (scan + automation)
+      - name: Trigger scan + automation tick
         run: |
-          curl -fsS "https://${WEBSITE_URL}/api/cron/tick" \
+          set -euo pipefail
+          if [ -z "${WEBSITE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "Missing WEBSITE_URL or CRON_SECRET GitHub secrets"
+            exit 1
+          fi
+          HOST="${WEBSITE_URL#https://}"
+          HOST="${HOST#http://}"
+          HOST="${HOST%/}"
+          curl -fsS --max-time 290 \
+            "https://${HOST}/api/cron/tick" \
             -H "Authorization: Bearer ${CRON_SECRET}"
