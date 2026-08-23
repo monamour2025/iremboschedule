@@ -1,5 +1,5 @@
-import { assertAdminAccess } from "../../../lib/automationConfig.js";
-import { enqueueApplicantAutomation } from "../../../lib/automationQueue.js";
+import { assertAdminAccess } from "../../../../lib/automationConfig.js";
+import { enqueueApplicantAutomation } from "../../../../lib/automationQueue.js";
 
 export const dynamic = "force-dynamic";
 
