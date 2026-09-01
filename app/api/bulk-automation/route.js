@@ -21,7 +21,8 @@ export async function POST(request) {
     const result = await saveDraftBatch({
       name: body.name,
       batchId: body.batchId || null,
-      applicants: body.applicants || []
+      applicants: body.applicants || [],
+      autoStart: body.autoStart === true || body.listMode === "estimate"
     });
     return Response.json({ ok: true, ...result }, { status: 201 });
   } catch (error) {

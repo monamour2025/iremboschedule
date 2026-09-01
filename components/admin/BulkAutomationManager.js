@@ -37,6 +37,16 @@ function buildEmptyRow(defaults = {}) {
   };
 }
 
+function isEstimateDraftBatch(batch) {
+  const applicants = batch?.applicants || [];
+  if (applicants.length === 0) {
+    return false;
+  }
+  return applicants.every(
+    (row) => row.status === "WAITING_FOR_SLOT" && !row.assignedScheduleId
+  );
+}
+
 function buildAutoBatchName(rows, listMode) {
   const first = rows[0];
   if (!first) {
@@ -325,17 +335,22 @@ export default function BulkAutomationManager() {
         body: JSON.stringify({
           name: buildAutoBatchName(rows, listMode) || activeDraftBatch?.name || "",
           batchId: targetBatchId || activeDraftBatch?.id || null,
+          listMode,
           applicants: rows
         })
       });
+      const savedCount = payload.applicants?.length || rows.length;
       setSuccess(
         isEstimateMode
-          ? `Saved ${payload.applicants?.length || rows.length} estimate applicant(s). Click Automate Codes — slots will assign automatically when detected.`
-          : `Saved ${payload.applicants?.length || rows.length} applicant(s) to the list. Click Automate Codes when ready.`
+          ? payload.autoStarted
+            ? `Saved and started monitoring ${savedCount} estimate applicant(s). The system will match slots and create codes automatically when detected.`
+            : `Saved ${savedCount} estimate applicant(s). Monitoring will start automatically.`
+          : `Saved ${savedCount} applicant(s) to the list. Click Automate Codes when ready.`
       );
       setRows([buildEmptyRow({ preferredLocation: defaultLocation })]);
-      if (!targetBatchId && payload.batch?.id) {
-        setTargetBatchId(String(payload.batch.id));
+      const batchId = payload.batch?.id || payload.id;
+      if (!targetBatchId && batchId) {
+        setTargetBatchId(String(batchId));
       }
       await loadBatches();
     } catch (saveError) {
@@ -531,15 +546,15 @@ export default function BulkAutomationManager() {
   return (
     <AdminShell
       title="Bulk automate"
-      description="Build lists for bulk automation — estimate mode waits for slots; pick-slot mode assigns open slots immediately."
+      description="Estimate lists auto-start when saved; pick-slot lists need Automate Codes after you choose slots."
       onSecretSaved={loadBatches}
     >
       <form onSubmit={handleSave} className="rounded-xl border border-teal-200 bg-teal-50 p-5 shadow-sm">
         <h2 className="text-base font-semibold text-teal-950">Add applicants to list</h2>
         <p className="mt-1 text-sm text-teal-800">
           {listMode === "estimate"
-            ? "Estimate list: register people by category, site, and desired time. Automation only uses matching category + site + time."
-            : "Pick slot now: choose site, then date and time from open slots. Automation uses exactly what you selected."}
+            ? "Estimate list: add people by category, site, and desired time. Save — the system watches for matching slots and creates codes automatically."
+            : "Pick slot now: choose site, date, and time from open slots, save, then click Automate Codes."}
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -682,14 +697,25 @@ export default function BulkAutomationManager() {
                   : ""}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => handleAutomate(activeDraftBatch.id)}
-              disabled={automatingId === activeDraftBatch.id || activeDraftBatch.applicantCount === 0}
-              className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {automatingId === activeDraftBatch.id ? "Starting..." : "Automate Codes"}
-            </button>
+            {!isEstimateDraftBatch(activeDraftBatch) ? (
+              <button
+                type="button"
+                onClick={() => handleAutomate(activeDraftBatch.id)}
+                disabled={automatingId === activeDraftBatch.id || activeDraftBatch.applicantCount === 0}
+                className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {automatingId === activeDraftBatch.id ? "Starting..." : "Automate Codes"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleAutomate(activeDraftBatch.id)}
+                disabled={automatingId === activeDraftBatch.id || activeDraftBatch.applicantCount === 0}
+                className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {automatingId === activeDraftBatch.id ? "Starting..." : "Start monitoring"}
+              </button>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -758,7 +784,11 @@ export default function BulkAutomationManager() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-950">Edit saved applicant</h2>
-                <p className="mt-1 text-sm text-slate-600">Changes stay on the bulk list until you click Automate Codes.</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {editingApplicant?.status === "WAITING_FOR_SLOT" && !editingApplicant?.assignedScheduleId
+                    ? "Changes update estimate preferences. Save the list again to refresh monitoring."
+                    : "Changes stay on the bulk list until you click Automate Codes."}
+                </p>
               </div>
               <button
                 type="button"

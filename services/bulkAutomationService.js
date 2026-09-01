@@ -78,7 +78,7 @@ async function normalizeLegacyDraftApplicants() {
   });
 }
 
-export async function saveDraftBatch({ name, applicants = [], batchId = null }) {
+export async function saveDraftBatch({ name, applicants = [], batchId = null, autoStart = false }) {
   await ensureDatabaseSchema();
   await normalizeLegacyDraftApplicants();
   if (!Array.isArray(applicants) || applicants.length === 0) {
@@ -123,9 +123,21 @@ export async function saveDraftBatch({ name, applicants = [], batchId = null }) 
   }
 
   const refreshed = await prisma.automationBatch.findUnique({ where: { id: batch.id } });
+  const detail = await buildBatchDetail(refreshed || batch);
+
+  if (autoStart) {
+    const started = await automateBatch(batch.id);
+    return {
+      batch: started,
+      applicants: started.applicants || created,
+      autoStarted: true
+    };
+  }
+
   return {
-    batch: await buildBatchDetail(refreshed || batch),
-    applicants: created
+    batch: detail,
+    applicants: created,
+    autoStarted: false
   };
 }
 

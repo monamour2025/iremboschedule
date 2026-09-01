@@ -185,6 +185,9 @@ function statusHint(status, lastError, applicationNumber, applicant = {}) {
       }
       return "Enter national ID to link Irembo profile, then click Automate Codes.";
     case "WAITING_FOR_SLOT":
+      if (applicant.batch?.status === "RUNNING" && !applicant.assignedScheduleId) {
+        return "Monitoring for matching slots — codes are created automatically when detected.";
+      }
       if (applicant.batch?.status === "SCHEDULED" && applicant.batch?.scheduledAt) {
         return `Bulk automation scheduled for ${new Date(applicant.batch.scheduledAt).toLocaleString()}.`;
       }
@@ -203,7 +206,9 @@ function statusHint(status, lastError, applicationNumber, applicant = {}) {
         return lastError;
       }
       if (applicant.batch?.status === "DRAFT") {
-        return "Saved to bulk list. Click Automate Codes when ready.";
+        return isAddCategoryWorkflow(applicant.applicationType)
+          ? "Saved to estimate list. Save the list again to start monitoring."
+          : "Saved to bulk list. Click Automate Codes when ready.";
       }
       if (applicant.entityId && (applicant.provisionalLicenseNumber || applicant.existingLicenseNumber)) {
         return isAddCategoryWorkflow(applicant.applicationType)

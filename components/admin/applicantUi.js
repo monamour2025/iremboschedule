@@ -11,14 +11,13 @@ export function formatAssignedSlotLabel(applicant) {
   const batchPending =
     applicant.batchName &&
     !finished &&
-    (applicant.batchStatus === "DRAFT" ||
-      (applicant.batchScheduledAt && new Date(applicant.batchScheduledAt) > new Date()));
-
-  if (
+    applicant.batchStatus === "DRAFT";
+  const isEstimateRow =
     applicant.status === "WAITING_FOR_SLOT" &&
     !applicant.assignedScheduleId &&
-    applicant.preferredLocation
-  ) {
+    Boolean(applicant.preferredLocation);
+
+  if (isEstimateRow) {
     const district = applicant.preferredLocation;
     const site = applicant.examCenter ? ` · ${applicant.examCenter}` : "";
     const time = applicant.preferredExamTime ? ` · ${applicant.preferredExamTime}` : "";
@@ -27,7 +26,7 @@ export function formatAssignedSlotLabel(applicant) {
         ? applicant.requestedLicenseCategory || applicant.licenseCategory
         : applicant.licenseCategory || "?";
     if (batchPending) {
-      return `Estimate · Category ${category} · ${district}${site}${time}`;
+      return `Estimate · Category ${category} · ${district}${site}${time} · save to start monitoring`;
     }
     return `Matching Category ${category} · ${district}${site}${time}`;
   }
