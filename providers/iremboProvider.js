@@ -4,7 +4,7 @@ import { applyIremboResponseCookies, mergeCookieString, warmIremboSession } from
 import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
 import { extractBookableScheduleId, extractGuidFromRow } from "../lib/scheduleIds.js";
-import { formatScheduleTimeLocal, parseTimeRange, resolveRowStartDateTime, isUpcomingSchedule, dedupeOpenUpcomingSchedules } from "../lib/scheduleTime.js";
+import { formatScheduleTimeLocal, formatScheduleDateLocal, parseTimeRange, resolveRowStartDateTime, isUpcomingSchedule, dedupeOpenUpcomingSchedules } from "../lib/scheduleTime.js";
 import { centerMatchesScanLocation, getIremboScanDistrictForCenter, getMonitorPriorityConfig, isCenterLocationValid, resolveScheduleLocation } from "../lib/monitorPriority.js";
 import { examCentersMatch, isSystemExamCenter, preferCanonicalCenter, centerSearchTerms, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
 
@@ -440,7 +440,8 @@ async function expandSchedulesByTimeRanges(category, location, locationRows) {
 
       for (const range of timeRanges) {
         const { startTime, endTime } = parseTimeRange(range);
-        for (const testCenter of centers.filter(Boolean)) {
+        for (const rawCenter of centers.filter(Boolean)) {
+          const testCenter = preferCanonicalCenter(rawCenter);
           if (!isSystemExamCenter(testCenter) || !centerMatchesScanLocation(testCenter, location)) {
             continue;
           }
@@ -524,33 +525,58 @@ async function expandSchedulesByTimeRanges(category, location, locationRows) {
 async function appendPriorityCenterSchedules(schedulesById, categories) {
   const priority = getMonitorPriorityConfig();
   const location = getIremboScanDistrictForCenter(priority.center) || priority.location;
-  const selectedDate = new Date().toISOString().slice(0, 10);
+  const kigaliToday = formatScheduleDateLocal(new Date());
+  const dates = [
+    ...new Set([
+      kigaliToday,
+      ...[...schedulesById.values()]
+        .map((schedule) => (schedule.startDateTime ? formatScheduleDateLocal(schedule.startDateTime) : ""))
+        .filter(Boolean)
+    ])
+  ];
 
   for (const category of categories) {
     for (const testCenter of centerSearchTerms(priority.center)) {
       try {
-        const rows = await queryFilteredSchedules({
-          category,
-          location,
-          page: 1,
-          limit: 50,
-          selectedDate,
-          testCenter
-        });
+        const openQueries = [
+          queryFilteredSchedules({
+            category,
+            location,
+            page: 1,
+            limit: 50,
+            testCenter
+          }),
+          ...dates.map((selectedDate) =>
+            queryFilteredSchedules({
+              category,
+              location,
+              page: 1,
+              limit: 50,
+              selectedDate,
+              testCenter
+            })
+          )
+        ];
+        const rowSets = await Promise.all(
+          openQueries.map((request) => request.catch(() => []))
+        );
 
-        for (const row of rows) {
-          const remainingCapacity = asInteger(
-            firstValue(row, ["remainingCapacity", "remainingSlots", "availableSlots", "availablePlaces"])
-          );
-          if (remainingCapacity !== null && remainingCapacity <= 0) {
-            continue;
-          }
-          const schedule = normalizeSchedule(row, location, category, {
-            selectedDate,
-            testCenter: preferCanonicalCenter(testCenter)
-          });
-          if (schedule.scheduleId && keepNormalizedSchedule(schedule, location)) {
-            schedulesById.set(schedule.scheduleId, schedule);
+        for (const rows of rowSets) {
+          for (const row of rows) {
+            const remainingCapacity = asInteger(
+              firstValue(row, ["remainingCapacity", "remainingSlots", "availableSlots", "availablePlaces"])
+            );
+            if (remainingCapacity !== null && remainingCapacity <= 0) {
+              continue;
+            }
+            const rowDate = firstValue(row, ["scheduleDate", "selectedDate", "startDate", "date", "examDate"]);
+            const schedule = normalizeSchedule(row, location, category, {
+              selectedDate: rowDate || kigaliToday,
+              testCenter: preferCanonicalCenter(testCenter)
+            });
+            if (schedule.scheduleId && keepNormalizedSchedule(schedule, location)) {
+              schedulesById.set(schedule.scheduleId, schedule);
+            }
           }
         }
       } catch (error) {
