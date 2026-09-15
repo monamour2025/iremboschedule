@@ -1,5 +1,6 @@
 .env
 .env.local
+backups/
 node_modules
 .next
 dist
@@ -9,3 +10,5 @@ prisma/dev.db-journal
 
 scripts/.probe-cache/
 *.log
+.vercel
+.env*.local

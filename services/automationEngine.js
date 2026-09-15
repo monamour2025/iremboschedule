@@ -3,6 +3,7 @@ import { isTestMode } from "../lib/automationConfig.js";
 import { withApplicantAutomationLock, markApplicantRateLimited, shouldDeferAutomation, consumeForceAutomationRun, clearAutomationCooldown } from "../lib/applicantAutomationLock.js";
 import { isApplicantHeldForBatch } from "../lib/bulkAutomationHold.js";
 import { appendFailedScheduleId } from "../lib/failedSchedules.js";
+import { extractIremboApplicationNumber } from "../lib/iremboApplicationNumbers.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch } from "../lib/examCenters.js";
 import {
@@ -53,21 +54,7 @@ function resolveAssignedSchedule(applicantRecord) {
 }
 
 function isSlotUnavailableError(error) {
-  const message = String(error?.message || "").toLowerCase();
-  return (
-    message.includes("423") ||
-    message.includes("locked") ||
-    message.includes("no longer available") ||
-    message.includes("no live schedule found") ||
-    message.includes("bookable") ||
-    message.includes("gahunda yibizamini") ||
-    message.includes("irimo ikosa") ||
-    message.includes("schedule error") ||
-    message.includes("trying the next open slot") ||
-    message.includes("schedule has an error") ||
-    message.includes("all candidate schedules") ||
-    message.includes("rejected by irembo")
-  );
+  return isIremboSlotUnavailableMessage(error?.message);
 }
 
 function isValidationError(error) {
@@ -203,6 +190,14 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     }
 
     const preferredLocation = String(applicantRecord.preferredLocation || "").trim();
+    const preferredTime = String(assignedSchedule.examTime || applicantRecord.preferredExamTime || "").trim();
+    if (
+      preferredTime &&
+      candidate.examTime &&
+      String(candidate.examTime).trim() !== preferredTime
+    ) {
+      return null;
+    }
     if (
       preferredLocation &&
       candidate.locationName &&
@@ -277,11 +272,9 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     });
   }
 
-  const searchPasses = [
-    assignedSchedule,
-    // Same site/location — only relax time if the exact preferred time is already booked.
-    { ...assignedSchedule, examTime: null }
-  ];
+  const searchPasses = applicantRecord.preferredExamTime
+    ? [assignedSchedule]
+    : [assignedSchedule];
 
   for (const pass of searchPasses) {
     const candidates = await listBookableSchedulesForApplicant(applicantRecord, pass);
@@ -318,8 +311,8 @@ export async function runApplicantAutomation(applicantId) {
     }
 
     let application = await getLatestApplicationForApplicant(applicantId);
-    if (!application) {
-      application = await createApplicationRecord(applicantId, { status: "PENDING" });
+    if (application && !application.applicationNumber) {
+      application = null;
     }
 
     const nationalId = applicantRecord.nationalIdFull;
@@ -366,10 +359,12 @@ export async function runApplicantAutomation(applicantId) {
 
       logger.info("Using verified citizen entityId", { applicantId, entityId });
 
-      await updateApplicationRecord(application.id, {
-        iremboEntityId: entityId,
-        status: "PROFILE_FETCHED"
-      });
+      if (application?.id) {
+        await updateApplicationRecord(application.id, {
+          iremboEntityId: entityId,
+          status: "PROFILE_FETCHED"
+        });
+      }
 
       if (isExistingApplicant) {
         logger.info("Skipping provisional licence validation for add-category workflow", { applicantId });
@@ -411,11 +406,13 @@ export async function runApplicantAutomation(applicantId) {
         responsePayload: { temporaryBookingId: booking.temporaryBookingId },
         success: true
       });
-      await updateApplicationRecord(application.id, {
-        examScheduleId: booking.examScheduleId,
-        temporaryBookingId: booking.temporaryBookingId,
-        status: "SLOT_RESERVED"
-      });
+      if (application?.id) {
+        await updateApplicationRecord(application.id, {
+          examScheduleId: booking.examScheduleId,
+          temporaryBookingId: booking.temporaryBookingId,
+          status: "SLOT_RESERVED"
+        });
+      }
       await setApplicantStatus(applicantId, "SLOT_RESERVED", null);
 
       logger.info("Submitting Irembo application", {
@@ -442,6 +439,18 @@ export async function runApplicantAutomation(applicantId) {
         email: applicantRecord.email,
         serviceCode: isExistingApplicant ? SUPPLEMENTARY_SERVICE_CODE : undefined
       });
+
+      if (!application) {
+        application = await createApplicationRecord(applicantId, {
+          iremboEntityId: entityId,
+          examScheduleId: booking.examScheduleId,
+          temporaryBookingId: booking.temporaryBookingId,
+          applicationNumber: created.applicationNumber,
+          amount: created.amount,
+          status: created.applicationState || "PAYMENT_PENDING",
+          responseData: created.raw
+        });
+      }
 
       await logAutomationEvent({
         applicantId,
@@ -518,6 +527,45 @@ export async function runApplicantAutomation(applicantId) {
         return { skipped: true, reason: "RATE_LIMIT", retryable: true };
       }
 
+      if (isIremboAlreadyRegisteredMessage(error.message)) {
+        const existingNumber = extractIremboApplicationNumber(error.message);
+        if (existingNumber) {
+          if (!application) {
+            application = await createApplicationRecord(applicantId, {
+              applicationNumber: existingNumber,
+              status: "PAYMENT_PENDING",
+              responseData: { error: error.message, alreadyExists: true }
+            });
+          } else {
+            await updateApplicationRecord(application.id, {
+              applicationNumber: existingNumber,
+              status: "PAYMENT_PENDING",
+              responseData: { error: error.message, alreadyExists: true }
+            });
+          }
+          await setApplicantStatus(
+            applicantId,
+            "APPLICATION_CREATED",
+            `Application ${existingNumber} already exists on Irembo. Dial *909# if SMS did not arrive.`
+          );
+          return { ok: true, applicantId, applicationNumber: existingNumber, alreadyExists: true };
+        }
+        await clearApplicantAssignment(
+          applicantId,
+          "Irembo said this person already has an exam. Still watching your estimate site/time. Dial *909# if a code already exists."
+        );
+        clearAutomationCooldown(applicantId);
+        await logAutomationEvent({
+          applicantId,
+          action: "ALREADY_REGISTERED",
+          requestPayload: { applicantId },
+          responsePayload: { error: error.message },
+          success: false,
+          errorMessage: error.message
+        });
+        return { skipped: true, reason: "ALREADY_REGISTERED", retryable: true };
+      }
+
       if (isSlotUnavailableError(error)) {
         const failedScheduleId =
           applicantRecord.assignedScheduleId ||
@@ -525,14 +573,11 @@ export async function runApplicantAutomation(applicantId) {
         if (failedScheduleId) {
           await appendFailedScheduleId(applicantId, failedScheduleId);
         }
-        await clearApplicantAssignment(applicantId, error.message);
+        await clearApplicantAssignment(
+          applicantId,
+          "Irembo said this slot is full or not in the future. Waiting for the next matching slot."
+        );
         clearAutomationCooldown(applicantId);
-        if (application?.id) {
-          await updateApplicationRecord(application.id, {
-            status: "WAITING_FOR_SLOT",
-            responseData: { error: error.message }
-          });
-        }
         await logAutomationEvent({
           applicantId,
           action: "SLOT_UNAVAILABLE",
@@ -541,16 +586,14 @@ export async function runApplicantAutomation(applicantId) {
           success: false,
           errorMessage: error.message
         });
-        throw new Error(
-          "Irembo rejected this slot (schedule error). The monitor shows availability but booking failed — trying the next slot shortly."
-        );
+        return { skipped: true, reason: "SLOT_UNAVAILABLE", retryable: true };
       }
 
       const nextStatus = error.message.includes("Waiting for a matching detected schedule")
         ? "WAITING_FOR_SLOT"
         : classifyFailure(error);
       await setApplicantStatus(applicantId, nextStatus, error.message);
-      if (application?.id) {
+      if (application?.id && application.applicationNumber) {
         await updateApplicationRecord(application.id, { status: "FAILED", responseData: { error: error.message } });
       }
       await logAutomationEvent({

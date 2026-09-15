@@ -335,10 +335,10 @@ export default function Dashboard({
     mountedRef.current = true;
     refresh({ includeSchedules: true, includeExtras: true });
 
-    const coreInterval = setInterval(() => refresh(), 15000);
+    const coreInterval = setInterval(() => refresh(), 120000);
     const heavyInterval = setInterval(
       () => refresh({ includeSchedules: true, includeExtras: true }),
-      45000
+      300000
     );
     const handleFocus = () => refresh({ includeSchedules: true, includeExtras: true });
 

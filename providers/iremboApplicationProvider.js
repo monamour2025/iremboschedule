@@ -793,7 +793,11 @@ export async function createDrivingLicenseApplication(input) {
   }
 
   const existingNumber = extractIremboApplicationNumber(payload?.message);
-  if (existingNumber && isExistingApplicationMessage(payload?.message, payload?.responseCode)) {
+  if (
+    existingNumber &&
+    (isExistingApplicationMessage(payload?.message, payload?.responseCode) ||
+      String(payload?.responseCode) === "70011")
+  ) {
     return {
       applicationNumber: existingNumber,
       applicationState: "PAYMENT_PENDING",

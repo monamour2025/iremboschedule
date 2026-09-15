@@ -87,7 +87,7 @@ export default function ApplicantsList() {
     if (!processing) {
       return undefined;
     }
-    const interval = setInterval(() => loadApplicants({ silent: true }), 15000);
+    const interval = setInterval(() => loadApplicants({ silent: true }), 120000);
     return () => clearInterval(interval);
   }, [applicants]);
 

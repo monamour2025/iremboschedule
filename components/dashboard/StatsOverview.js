@@ -30,7 +30,7 @@ export default function StatsOverview({
           ["Last scan", formatDate(status?.lastScanAt)],
           ["Open schedules", formatNumber(scheduleCount)],
           ["Remaining slots", formatNumber(remainingSlots)],
-          ["Live refresh", isFetching ? "Updating..." : "Every 15 seconds"]
+          ["Live refresh", isFetching ? "Updating..." : "Every 2 minutes"]
         ].map(([label, value]) => (
           <div key={label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>

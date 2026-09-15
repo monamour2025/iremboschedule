@@ -73,6 +73,11 @@ export function scheduleMatchesApplicant(applicant, schedule) {
     }
   }
 
+  const start = schedule.startDateTime ? new Date(schedule.startDateTime) : null;
+  if (!start || Number.isNaN(start.getTime()) || start.getTime() <= Date.now()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -185,8 +190,11 @@ function statusHint(status, lastError, applicationNumber, applicant = {}) {
       }
       return "Enter national ID to link Irembo profile, then click Automate Codes.";
     case "WAITING_FOR_SLOT":
+      if (lastError?.includes("70011") || lastError?.includes("*909#") || lastError?.includes("Mwamaze kwiyandikisha")) {
+        return "Irembo already has an exam for this person. Still watching your estimate site/time; dial *909# if a code already exists.";
+      }
       if (applicant.batch?.status === "RUNNING" && !applicant.assignedScheduleId) {
-        return "Monitoring for matching slots — codes are created automatically when detected.";
+        return "Watching Irembo for your exact estimate site, category, and time. A code is created only when that slot is booked.";
       }
       if (applicant.batch?.status === "SCHEDULED" && applicant.batch?.scheduledAt) {
         return `Bulk automation scheduled for ${new Date(applicant.batch.scheduledAt).toLocaleString()}.`;
@@ -1496,7 +1504,6 @@ export async function clearApplicantAssignment(id, lastError = null) {
     SET
       "status" = 'WAITING_FOR_SLOT',
       "lastError" = ${safeError},
-      "examCenter" = '',
       "examTime" = '',
       "examDate" = NULL,
       "assignedScheduleId" = NULL,
@@ -1521,10 +1528,55 @@ export async function listWaitingApplicants() {
   });
 }
 
+export async function recoverFailedSlotBookings() {
+  await ensureDatabaseSchema();
+  assertAutomationModels();
+  const { isIremboAlreadyRegisteredMessage, isIremboSlotUnavailableMessage } = await import(
+    "../lib/iremboSlotErrors.js"
+  );
+
+  const failed = await prisma.applicant.findMany({
+    where: {
+      status: { in: ["FAILED", "FAILED_BOOKING", "FAILED_APPLICATION"] }
+    },
+    select: { id: true, lastError: true, status: true }
+  });
+
+  let recovered = 0;
+  for (const applicant of failed) {
+    if (isIremboAlreadyRegisteredMessage(applicant.lastError)) {
+      await clearApplicantAssignment(
+        applicant.id,
+        "Irembo said this person already has an exam. Still watching your estimate site/time. Dial *909# if a code already exists."
+      );
+      recovered += 1;
+      continue;
+    }
+    if (!isIremboSlotUnavailableMessage(applicant.lastError) && applicant.status !== "FAILED_BOOKING") {
+      continue;
+    }
+    await clearApplicantAssignment(
+      applicant.id,
+      "Irembo said this slot is full or not in the future. Waiting for the next matching slot."
+    );
+    recovered += 1;
+  }
+
+  const deleted = await prisma.application.deleteMany({
+    where: {
+      OR: [{ applicationNumber: null }, { applicationNumber: "" }],
+      status: { in: ["FAILED", "PENDING", "WAITING_FOR_SLOT", "PROFILE_FETCHED", "SLOT_RESERVED"] }
+    }
+  });
+
+  return { recovered, deletedPlaceholders: deleted.count };
+}
+
 export async function listApplicants() {
   await ensureDatabaseSchema();
   assertAutomationModels();
   await repairStuckProfileApplicants().catch(() => 0);
+  await recoverFailedSlotBookings().catch(() => ({ recovered: 0 }));
   await prisma.applicant.updateMany({
     where: {
       status: "PENDING",

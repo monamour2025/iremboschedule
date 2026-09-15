@@ -191,7 +191,9 @@ export async function listApplications({ syncFromIrembo = true } = {}) {
     await prisma.application.deleteMany({ where: { id: { in: orphanedIds } } });
   }
 
-  const liveRows = applications.filter((row) => applicantById.has(row.applicantId));
+  const liveRows = applications.filter(
+    (row) => applicantById.has(row.applicantId) && String(row.applicationNumber || "").trim()
+  );
 
   if (!syncFromIrembo) {
     return liveRows.map((application) => {

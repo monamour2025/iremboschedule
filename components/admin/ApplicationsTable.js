@@ -66,7 +66,8 @@ export default function ApplicationsTable() {
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-600">
-          Status comes from Irembo, not only from local storage.
+          Status comes from Irembo for applications that already have a code.
+          Slot-full attempts without a code are not listed here.
           {syncing ? " Syncing…" : ""}
         </p>
         <button

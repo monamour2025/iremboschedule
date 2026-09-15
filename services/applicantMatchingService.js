@@ -109,22 +109,24 @@ export async function matchApplicantsToSchedule(schedule) {
     return [];
   }
 
-  let assignment;
-  try {
-    assignment = await resolveBookableAssignment(schedule);
-  } catch (error) {
-    logger.warn("Skipping schedule match because bookable id could not be resolved", {
-      scheduleId: schedule.scheduleId,
-      message: error.message
-    });
-    return [];
-  }
-
   const assignments = [];
   const capacity = Number(schedule.remainingCapacity || 1);
 
   for (const applicant of matches.slice(0, capacity)) {
     if (await isApplicantHeldForBatch(applicant.id)) {
+      continue;
+    }
+    let assignment;
+    try {
+      assignment = await resolveBookableAssignment(schedule, {
+        preferredExamTime: applicant.preferredExamTime
+      });
+    } catch (error) {
+      logger.warn("Skipping schedule match because bookable id could not be resolved", {
+        applicantId: applicant.id,
+        scheduleId: schedule.scheduleId,
+        message: error.message
+      });
       continue;
     }
     try {
@@ -136,7 +138,8 @@ export async function matchApplicantsToSchedule(schedule) {
         scheduleId: schedule.scheduleId,
         examScheduleId: assignment.examScheduleId,
         category: schedule.category,
-        location: schedule.location
+        location: schedule.location,
+        examTime: assignment.examTime
       });
     } catch (error) {
       logger.error("Failed to match applicant to schedule", {
@@ -224,7 +227,8 @@ export async function tryMatchApplicantImmediately(applicantId) {
   const schedules = await prisma.schedule.findMany({
     where: {
       remainingCapacity: { gt: 0 },
-      category: applicant.licenseCategory
+      category: applicant.licenseCategory,
+      startDateTime: { gt: new Date() }
     },
     orderBy: [{ startDateTime: "asc" }]
   });

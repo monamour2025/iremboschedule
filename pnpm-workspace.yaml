@@ -1,8 +1,12 @@
-allowBuilds:
-  '@prisma/client': set this to true or false
-  '@prisma/engines': set this to true or false
-  '@tailwindcss/oxide': set this to true or false
-  core-js: set this to true or false
-  msgpackr-extract: set this to true or false
-  prisma: set this to true or false
-  sharp: set this to true or false
+packages:
+  - "."
+
+dangerouslyAllowAllBuilds: true
+
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - "@tailwindcss/oxide"
+  - msgpackr-extract
+  - sharp

@@ -9,7 +9,8 @@ export async function GET(request) {
   try {
     assertCronAccess(request);
     process.env.IREMBO_EXPAND_TIME_SLOTS = "false";
-    const result = await runAutomationTick({ includeScan: true, cronScan: true });
+    const includeScan = process.env.SCAN_ON_CRON !== "false";
+    const result = await runAutomationTick({ includeScan, cronScan: true });
     logger.info("Cron tick completed", {
       scanned: result.scanned,
       scanOk: result.scan?.ok,
