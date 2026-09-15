@@ -4,6 +4,26 @@ import { serializeApplication } from "./applicantService.js";
 import { fetchPaymentTransactionByApplicationNumber } from "../providers/iremboApplicationProvider.js";
 import { logger } from "../lib/logger.js";
 
+export async function assertExamScheduleAvailableForApplicant(applicantId, examScheduleId) {
+  const scheduleId = String(examScheduleId || "").trim();
+  if (!scheduleId) {
+    return;
+  }
+  const taken = await prisma.application.findFirst({
+    where: {
+      examScheduleId: scheduleId,
+      applicationNumber: { not: null },
+      applicantId: { not: Number(applicantId) }
+    },
+    select: { applicantId: true, applicationNumber: true }
+  });
+  if (taken) {
+    throw new Error(
+      "This Irembo exam slot was already booked for another applicant. Waiting for a matching slot at the requested site."
+    );
+  }
+}
+
 export async function createApplicationRecord(applicantId, data = {}) {
   const application = await prisma.application.create({
     data: {

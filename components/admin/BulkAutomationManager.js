@@ -33,7 +33,8 @@ function buildEmptyRow(defaults = {}) {
   return {
     ...emptyApplicantRow,
     licenseCategory: defaults.licenseCategory || emptyApplicantRow.licenseCategory,
-    preferredLocation: defaults.preferredLocation || ""
+    preferredLocation: emptyApplicantRow.preferredLocation,
+    examCenter: emptyApplicantRow.examCenter
   };
 }
 
@@ -67,7 +68,6 @@ function buildAutoBatchName(rows, listMode) {
 
 export default function BulkAutomationManager() {
   const [listMode, setListMode] = useState("estimate");
-  const [defaultLocation, setDefaultLocation] = useState("");
   const [locations, setLocations] = useState([]);
   const [targetBatchId, setTargetBatchId] = useState("");
   const [rows, setRows] = useState([buildEmptyRow()]);
@@ -160,7 +160,6 @@ export default function BulkAutomationManager() {
         }
         if (payload?.monitor?.locations?.length) {
           setLocations(payload.monitor.locations);
-          setDefaultLocation((current) => current || payload.monitor.locations[0] || "");
         }
       })
       .catch(() => {});
@@ -224,9 +223,7 @@ export default function BulkAutomationManager() {
   function addRow() {
     setRows((current) => [
       ...current,
-      buildEmptyRow({
-        preferredLocation: listMode === "estimate" ? defaultLocation : ""
-      })
+      buildEmptyRow()
     ]);
   }
 
@@ -347,7 +344,7 @@ export default function BulkAutomationManager() {
             : `Saved ${savedCount} estimate applicant(s). Monitoring will start automatically.`
           : `Saved ${savedCount} applicant(s) to the list. Click Automate Codes when ready.`
       );
-      setRows([buildEmptyRow({ preferredLocation: defaultLocation })]);
+      setRows([buildEmptyRow()]);
       const batchId = payload.batch?.id || payload.id;
       if (!targetBatchId && batchId) {
         setTargetBatchId(String(batchId));
@@ -553,7 +550,7 @@ export default function BulkAutomationManager() {
         <h2 className="text-base font-semibold text-teal-950">Add applicants to list</h2>
         <p className="mt-1 text-sm text-teal-800">
           {listMode === "estimate"
-            ? "Estimate list: add people by category, site, and desired time. Save — the system watches for matching slots and creates codes automatically."
+            ? "Estimate list: this system only uses BUSANZA AUTOMATED CENTER (Kicukiro). Add people by category and desired time. Save — matching slots create codes automatically."
             : "Pick slot now: choose site, date, and time from open slots, save, then click Automate Codes."}
         </p>
 

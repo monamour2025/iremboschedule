@@ -9,6 +9,7 @@ import {
 } from "../lib/applicantAutomationLock.js";
 import { getFailedScheduleIds, isScheduleBlocked } from "../lib/failedSchedules.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
+import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
 import { findExamSchedule } from "../providers/iremboApplicationProvider.js";
 import { isApplicantHeldForBatch } from "../lib/bulkAutomationHold.js";
 import {
@@ -30,36 +31,58 @@ export async function resolveBookableAssignment(schedule, options = {}) {
   if (!start || !schedule?.center) {
     throw new Error("Detected schedule is missing center or start time.");
   }
+  if (!isSystemExamCenter(schedule.center)) {
+    throw new Error(`Only ${SYSTEM_EXAM_CENTER} slots can be booked.`);
+  }
 
-  const examCenter = schedule.center;
+  const examCenter = SYSTEM_EXAM_CENTER;
   const examDate = start;
   const preferredTime = String(options.preferredExamTime || "").trim();
   const examTime = preferredTime || formatExamTime(start);
+  const location = SYSTEM_EXAM_LOCATION;
+  const monitorGuid = extractRawScheduleId(schedule.scheduleId);
 
   logger.info("Resolving live bookable scheduleID from Irembo", {
     scheduleId: schedule.scheduleId,
     category: schedule.category,
     center: examCenter,
-    location: schedule.location
+    location
   });
 
-  const live = await findExamSchedule({
-    licenseCategory: schedule.category,
-    examCenter,
-    examDate,
-    examTime,
-    location: schedule.location
-  });
+  let examScheduleId = isBookableScheduleId(monitorGuid) ? monitorGuid : "";
+  if (!examScheduleId) {
+    try {
+      const live = await findExamSchedule({
+        licenseCategory: schedule.category,
+        examCenter,
+        examDate,
+        examTime,
+        location
+      });
+      const liveMatches =
+        examCentersMatch(live.examCenter, examCenter) &&
+        (!location || locationsMatch(live.locationName, location));
+      if (liveMatches && isBookableScheduleId(live.examScheduleId)) {
+        examScheduleId = live.examScheduleId;
+      }
+    } catch (error) {
+      logger.warn("Live schedule lookup failed; using monitor schedule id if bookable", {
+        scheduleId: schedule.scheduleId,
+        message: error.message
+      });
+    }
+  }
 
-  if (!isBookableScheduleId(live.examScheduleId)) {
+  if (!isBookableScheduleId(examScheduleId)) {
     throw new Error("Could not resolve a bookable Irembo scheduleID for this detected slot.");
   }
 
   return {
-    examScheduleId: live.examScheduleId,
+    examScheduleId,
     examCenter,
     examDate,
     examTime,
+    locationName: location,
     assignedScheduleId: schedule.scheduleId
   };
 }
@@ -87,17 +110,12 @@ export async function assignScheduleFromMonitor(applicantId, scheduleId) {
     preferredExamTime: applicant?.preferredExamTime
   });
 
-  await prisma.applicant.update({
-    where: { id: Number(applicantId) },
-    data: { preferredLocation: schedule.location || "" }
-  });
-
   await assignScheduleToApplicant(applicantId, assignment);
   return assignment;
 }
 
 export async function matchApplicantsToSchedule(schedule) {
-  if (!schedule || Number(schedule.remainingCapacity || 0) <= 0) {
+  if (!schedule || Number(schedule.remainingCapacity || 0) <= 0 || !isSystemExamCenter(schedule.center)) {
     return [];
   }
 

@@ -1,7 +1,7 @@
 import { ensureDatabaseSchema } from "../lib/ensureSchema.js";
 import { prisma } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
-import { normalizeCenterName } from "../lib/examCenters.js";
+import { isSystemExamCenter, normalizeCenterName, systemExamCenterDbWhere } from "../lib/examCenters.js";
 
 function parseScheduleFromChange(change) {
   if (!change?.newValue) {
@@ -48,8 +48,11 @@ async function safeNotificationCount() {
 export async function getAnalyticsSummary() {
   await ensureDatabaseSchema();
   try {
+    const { purgeNonSystemExamSchedules } = await import("./monitorService.js");
+    await purgeNonSystemExamSchedules();
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const availableWhere = { remainingCapacity: { gt: 0 } };
+    const centerWhere = systemExamCenterDbWhere();
+    const availableWhere = { remainingCapacity: { gt: 0 }, ...centerWhere };
 
     const [
       totalSchedules,
@@ -62,7 +65,7 @@ export async function getAnalyticsSummary() {
       notificationsSent,
       snapshots
     ] = await Promise.all([
-      prisma.schedule.count(),
+      prisma.schedule.count({ where: centerWhere }),
       prisma.schedule.count({ where: availableWhere }),
       prisma.schedule.aggregate({ where: availableWhere, _sum: { remainingCapacity: true } }),
       prisma.schedule.groupBy({
@@ -94,15 +97,21 @@ export async function getAnalyticsSummary() {
 
     const detections = recentChanges
       .filter((change) => change.type === "NEW_SCHEDULE")
-      .slice(0, 20)
       .map((change) => ({
         scheduleId: change.scheduleId,
         detectedAt: change.createdAt,
         schedule: parseScheduleFromChange(change)
-      }));
+      }))
+      .filter((detection) => isSystemExamCenter(detection.schedule?.center))
+      .slice(0, 20);
+
+    const systemChanges = recentChanges.filter((change) => {
+      const schedule = parseScheduleFromChange(change);
+      return isSystemExamCenter(schedule?.center);
+    });
 
     const trendMap = new Map();
-    for (const change of recentChanges) {
+    for (const change of systemChanges) {
       const day = change.createdAt.toISOString().slice(0, 10);
       const bucket = trendMap.get(day) || {
         day,
@@ -158,8 +167,8 @@ export async function getAnalyticsSummary() {
         totalSchedules,
         availableSchedules: availableScheduleCount,
         totalRemainingSlots: Number(slotAggregate._sum.remainingCapacity || 0),
-        detectionsLast7Days: recentChanges.filter((change) => change.type === "NEW_SCHEDULE").length,
-        changesLast7Days: recentChanges.length,
+        detectionsLast7Days: systemChanges.filter((change) => change.type === "NEW_SCHEDULE").length,
+        changesLast7Days: systemChanges.length,
         notificationsSent
       },
       activeLocations: activeLocations

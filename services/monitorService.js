@@ -2,7 +2,7 @@ import { prisma } from "../lib/db.js";
 import { compareSchedules } from "../lib/compare.js";
 import { bulkUpsertSchedules } from "../lib/bulkUpsert.js";
 import { ensureDatabaseSchema } from "../lib/ensureSchema.js";
-import { centerSearchTerms } from "../lib/examCenters.js";
+import { isSystemExamCenter, SYSTEM_EXAM_CENTER, systemExamCenterDbWhere } from "../lib/examCenters.js";
 import { isDetectedSchedule, canonicalizeSchedule, scheduleMatchesCategoryFilter, scheduleMatchesLocationFilter, getMonitorPriorityConfig } from "../lib/monitorPriority.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -66,6 +66,14 @@ export async function runScan(options = {}) {
 
     await bulkUpsertSchedules(latestSchedules, startedAt, tx);
 
+    await tx.schedule.deleteMany({
+      where: {
+        NOT: {
+          center: { equals: SYSTEM_EXAM_CENTER, mode: "insensitive" }
+        }
+      }
+    });
+
     if (scanMeta.scannedScopes.length > 0 && latestScheduleIds.length > 0) {
       await tx.schedule.deleteMany({
         where: {
@@ -125,15 +133,26 @@ export async function runScan(options = {}) {
   };
 }
 
+export async function purgeNonSystemExamSchedules() {
+  await prisma.schedule.deleteMany({
+    where: {
+      NOT: systemExamCenterDbWhere()
+    }
+  });
+}
+
 export async function getStatus() {
   await ensureDatabaseSchema();
+  await purgeNonSystemExamSchedules();
+  const centerWhere = systemExamCenterDbWhere();
+  const availableWhere = { remainingCapacity: { gt: 0 }, ...centerWhere };
   const [lastSnapshot, scheduleCount, availableScheduleCount, slotAggregate, changeCount, latestChange] =
     await Promise.all([
       prisma.snapshot.findFirst({ orderBy: { createdAt: "desc" } }),
-      prisma.schedule.count(),
-      prisma.schedule.count({ where: { remainingCapacity: { gt: 0 } } }),
+      prisma.schedule.count({ where: centerWhere }),
+      prisma.schedule.count({ where: availableWhere }),
       prisma.schedule.aggregate({
-        where: { remainingCapacity: { gt: 0 } },
+        where: availableWhere,
         _sum: { remainingCapacity: true }
       }),
       prisma.change.count(),
@@ -168,7 +187,7 @@ export async function listSchedules(options = {}) {
   await ensureDatabaseSchema();
   const availableOnly = options.availableOnly !== false;
   const limit = Number(options.limit || process.env.SCHEDULES_API_LIMIT || 3000);
-  const where = {};
+  const where = { ...systemExamCenterDbWhere() };
 
   if (availableOnly) {
     where.remainingCapacity = { gt: 0 };
@@ -176,21 +195,19 @@ export async function listSchedules(options = {}) {
   if (options.category) {
     where.category = String(options.category).trim().toUpperCase();
   }
-  if (options.center) {
-    const terms = centerSearchTerms(options.center);
-    if (terms.length === 1) {
-      where.center = { contains: terms[0], mode: "insensitive" };
-    } else if (terms.length > 1) {
-      where.OR = terms.map((term) => ({ center: { contains: term, mode: "insensitive" } }));
-    }
+  if (options.center && !isSystemExamCenter(options.center)) {
+    return [];
   }
+  where.center = { equals: SYSTEM_EXAM_CENTER, mode: "insensitive" };
 
   return prisma.schedule.findMany({
     where,
     orderBy: [{ remainingCapacity: "desc" }, { startDateTime: "asc" }, { scheduleId: "asc" }],
     take: Number.isFinite(limit) && limit > 0 ? limit : undefined
   }).then((rows) => {
-    let normalizedRows = rows.map((schedule) => canonicalizeSchedule(schedule));
+    let normalizedRows = rows
+      .map((schedule) => canonicalizeSchedule(schedule))
+      .filter((schedule) => isSystemExamCenter(schedule.center));
     if (options.location) {
       normalizedRows = normalizedRows.filter((schedule) =>
         scheduleMatchesLocationFilter(schedule, options.location)
@@ -260,8 +277,26 @@ export async function listCategorySlotsForPicker(category, options = {}) {
 
 export async function listChanges(limit = 50) {
   await ensureDatabaseSchema();
-  return prisma.change.findMany({
+  const rows = await prisma.change.findMany({
     orderBy: { createdAt: "desc" },
-    take: limit
+    take: Math.max(Number(limit) * 8, 200)
   });
+  return rows
+    .filter((change) => {
+      for (const raw of [change.newValue, change.oldValue]) {
+        if (!raw) {
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          if (isSystemExamCenter(parsed?.center)) {
+            return true;
+          }
+        } catch {
+          // Ignore malformed change payloads.
+        }
+      }
+      return false;
+    })
+    .slice(0, Number(limit) || 50);
 }

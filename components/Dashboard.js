@@ -26,7 +26,7 @@ import {
   matchesSiteFilter,
   canonicalizeSchedule
 } from "@/lib/monitorPriority";
-import { BUSANZA_AUTOMATED_CENTER, normalizeCenterName } from "@/lib/examCenters";
+import { BUSANZA_AUTOMATED_CENTER, isSystemExamCenter, SYSTEM_EXAM_CENTER } from "@/lib/examCenters";
 import { scheduleMatchesCategory } from "@/lib/scheduleTime";
 
 const tabs = [
@@ -64,7 +64,7 @@ export default function Dashboard({
   const [detectionSaving, setDetectionSaving] = useState(false);
   const [scheduleFilter, setScheduleFilter] = useState("active");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [siteFilter, setSiteFilter] = useState("all");
+  const [siteFilter, setSiteFilter] = useState(SYSTEM_EXAM_CENTER);
   const [examTypeFilter, setExamTypeFilter] = useState("all");
   const [notificationPrefs, setNotificationPrefs] = useState(loadNotificationPrefs);
   const [isFetching, setIsFetching] = useState(false);
@@ -92,10 +92,7 @@ export default function Dashboard({
     () => buildOptions(status?.monitor?.categories, normalizedSchedules, changes, "category"),
     [changes, normalizedSchedules, status]
   );
-  const siteOptions = useMemo(
-    () => buildCenterOptions(normalizedSchedules, changes),
-    [changes, normalizedSchedules]
-  );
+  const siteOptions = useMemo(() => [SYSTEM_EXAM_CENTER], []);
   const examTypeOptions = useMemo(
     () => [status?.monitor?.service || "PRACTICAL_EXAM"].filter(Boolean),
     [status]
@@ -158,7 +155,7 @@ export default function Dashboard({
       const matchesSite = matchesSiteFilter(schedule, siteFilter);
       const matchesExamType =
         examTypeFilter === "all" || (status?.monitor?.service || "PRACTICAL_EXAM") === examTypeFilter;
-      return matchesCategory && matchesSite && matchesExamType;
+      return matchesCategory && matchesSite && matchesExamType && isSystemExamCenter(schedule.center);
     });
   }, [
     categoryFilter,
@@ -653,7 +650,7 @@ export default function Dashboard({
               onExamTypeChange={setExamTypeFilter}
               onClear={() => {
                 setCategoryFilter("all");
-                setSiteFilter("all");
+                setSiteFilter(SYSTEM_EXAM_CENTER);
                 setExamTypeFilter("all");
               }}
             />
@@ -693,28 +690,6 @@ export default function Dashboard({
       </div>
     </main>
   );
-}
-
-function buildCenterOptions(schedules, changes) {
-  const centers = new Map();
-
-  function addCenter(center) {
-    const normalized = normalizeCenterName(center);
-    if (!normalized) {
-      return;
-    }
-    centers.set(normalized.toLowerCase(), normalized);
-  }
-
-  for (const schedule of schedules) {
-    addCenter(schedule.center);
-  }
-  for (const change of changes) {
-    addCenter(parseChangeObject(change.oldValue).center);
-    addCenter(parseChangeObject(change.newValue).center);
-  }
-
-  return ["all", ...[...centers.values()].sort((a, b) => a.localeCompare(b))];
 }
 
 function buildOptions(seedValues, schedules, changes, field) {

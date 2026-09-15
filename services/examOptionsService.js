@@ -1,5 +1,5 @@
 import { ensureDatabaseSchema } from "../lib/ensureSchema.js";
-import { examCentersMatch } from "../lib/examCenters.js";
+import { examCentersMatch, isSystemExamCenter } from "../lib/examCenters.js";
 import { scheduleMatchesLocationFilter } from "../lib/monitorPriority.js";
 import { getStatus, listSchedules } from "./monitorService.js";
 import { resolveScheduleTime } from "../lib/scheduleTime.js";
@@ -47,7 +47,12 @@ export async function getExamFormOptions(filters = {}) {
     ? schedules.filter((row) => String(row.category || "").toUpperCase() === category)
     : schedules;
 
-  const centers = [...new Set(categorySchedules.map((row) => normalizeCenter(row.center)).filter(Boolean))].sort();
+  const centers = [...new Set(
+    categorySchedules
+      .filter((row) => isSystemExamCenter(row.center))
+      .map((row) => normalizeCenter(row.center))
+      .filter(Boolean)
+  )].sort();
 
   const centerSchedules = categorySchedules.filter((row) => matchesCenter(row.center, center));
 

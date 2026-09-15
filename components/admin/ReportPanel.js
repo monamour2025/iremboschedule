@@ -65,6 +65,7 @@ function ApplicantReportTable({ rows, emptyMessage, showUpdated = false }) {
             <th className="px-4 py-3">Name</th>
             <th className="px-4 py-3">Phone</th>
             <th className="px-4 py-3">Category</th>
+            <th className="px-4 py-3">Requested site</th>
             <th className="px-4 py-3">Exam slot</th>
             <th className="px-4 py-3">Kode yo kwishyura</th>
             <th className="px-4 py-3">Status</th>
@@ -75,7 +76,7 @@ function ApplicantReportTable({ rows, emptyMessage, showUpdated = false }) {
         <tbody className="divide-y divide-slate-100">
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={showUpdated ? 8 : 7} className="px-4 py-8 text-center text-slate-500">
+              <td colSpan={showUpdated ? 9 : 8} className="px-4 py-8 text-center text-slate-500">
                 {emptyMessage}
               </td>
             </tr>
@@ -95,6 +96,10 @@ function ApplicantReportTable({ rows, emptyMessage, showUpdated = false }) {
                   <div className="text-xs text-slate-500">{row.email || "-"}</div>
                 </td>
                 <td className="px-4 py-3">{row.licenseCategory}</td>
+                <td className="px-4 py-3">
+                  <div className="font-medium">{row.examCenter}</div>
+                  <div className="text-xs text-slate-500">{row.preferredLocation}</div>
+                </td>
                 <td className="px-4 py-3">{row.examSlot}</td>
                 <td className="px-4 py-3 font-mono text-xs font-semibold text-teal-800">
                   {row.paymentCode}

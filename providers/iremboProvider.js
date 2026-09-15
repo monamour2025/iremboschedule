@@ -6,7 +6,7 @@ import { logger } from "../lib/logger.js";
 import { extractBookableScheduleId, extractGuidFromRow } from "../lib/scheduleIds.js";
 import { parseTimeRange, resolveRowStartDateTime, formatScheduleTimeLocal } from "../lib/scheduleTime.js";
 import { centerMatchesScanLocation, getIremboScanDistrictForCenter, getMonitorPriorityConfig, isCenterLocationValid, resolveScheduleLocation } from "../lib/monitorPriority.js";
-import { examCentersMatch, preferCanonicalCenter, centerSearchTerms } from "../lib/examCenters.js";
+import { examCentersMatch, isSystemExamCenter, preferCanonicalCenter, centerSearchTerms, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
 
 const IREMBO_API_BASE =
   "https://irembo.gov.rw/irembo/rest/public/police/v2/request";
@@ -106,26 +106,8 @@ async function mapWithConcurrency(items, concurrency, worker) {
   return results;
 }
 
-export function getMonitoredLocations(options = {}) {
-  if (options.location) {
-    return uniqueValues([options.location]);
-  }
-
-  if (Array.isArray(options.locations) && options.locations.length > 0) {
-    return withPriorityLocation(uniqueValues(options.locations));
-  }
-
-  if (process.env.IREMBO_LOCATIONS?.trim()) {
-    return withPriorityLocation(uniqueValues(process.env.IREMBO_LOCATIONS.split(",")));
-  }
-
-  return withPriorityLocation(DEFAULT_LOCATIONS);
-}
-
-function withPriorityLocation(locations) {
-  const priority = getMonitorPriorityConfig();
-  const scanDistrict = getIremboScanDistrictForCenter(priority.center) || priority.location;
-  return uniqueValues([...locations, scanDistrict].filter(Boolean));
+export function getMonitoredLocations() {
+  return [SYSTEM_EXAM_LOCATION];
 }
 
 export function getMonitoredCategories(options = {}) {
@@ -258,13 +240,13 @@ function normalizeSchedule(row, sourceLocation, sourceCategory, hints = {}) {
 }
 
 function keepNormalizedSchedule(schedule, scanLocation) {
-  if (!schedule?.scheduleId || !isCenterLocationValid(schedule)) {
+  if (!schedule?.scheduleId || !isCenterLocationValid(schedule) || !isSystemExamCenter(schedule.center)) {
     return false;
   }
-  const scan = String(scanLocation || "").trim().toLowerCase();
+  const scan = String(scanLocation || SYSTEM_EXAM_LOCATION).trim().toLowerCase();
   const resolved = String(schedule.location || "").trim().toLowerCase();
   if (!scan || !resolved) {
-    return true;
+    return isSystemExamCenter(schedule.center);
   }
   return scan === resolved;
 }
@@ -451,7 +433,7 @@ async function expandSchedulesByTimeRanges(category, location, locationRows) {
       for (const range of timeRanges) {
         const { startTime, endTime } = parseTimeRange(range);
         for (const testCenter of centers.filter(Boolean)) {
-          if (!centerMatchesScanLocation(testCenter, location)) {
+          if (!isSystemExamCenter(testCenter) || !centerMatchesScanLocation(testCenter, location)) {
             continue;
           }
           const rows = await queryFilteredSchedules({

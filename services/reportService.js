@@ -14,13 +14,14 @@ function isFailedStatus(status) {
 function formatExamSlot(applicant) {
   const date = applicant.examDate || "";
   const time = applicant.examTime || "";
-  if (date && time) {
-    return `${date} ${time}`;
+  const center = applicant.examCenter || "";
+  const location = applicant.preferredLocation || "";
+  const when = date && time ? `${date} ${time}` : applicant.assignedExam?.label || "";
+  const where = [center, location].filter(Boolean).join(" · ");
+  if (where && when) {
+    return `${where} · ${when}`;
   }
-  if (applicant.assignedExam?.label) {
-    return applicant.assignedExam.label;
-  }
-  return "-";
+  return where || when || "-";
 }
 
 function countByCategory(applicants) {

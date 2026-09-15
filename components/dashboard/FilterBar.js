@@ -1,14 +1,13 @@
 "use client";
 
+import { SYSTEM_EXAM_CENTER } from "@/lib/examCenters";
+
 export default function FilterBar({
   categoryFilter,
-  siteFilter,
   examTypeFilter,
   categoryOptions,
-  siteOptions,
   examTypeOptions,
   onCategoryChange,
-  onSiteChange,
   onExamTypeChange,
   onClear
 }) {
@@ -17,7 +16,9 @@ export default function FilterBar({
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-950">Filters</h3>
-          <p className="text-xs text-slate-500">Filter schedules by category, exam center, and exam type.</p>
+          <p className="text-xs text-slate-500">
+            This monitor only tracks {SYSTEM_EXAM_CENTER}. Filter by category and exam type.
+          </p>
         </div>
         <button
           type="button"
@@ -28,9 +29,29 @@ export default function FilterBar({
         </button>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <FilterSelect label="Category" value={categoryFilter} onChange={onCategoryChange} options={categoryOptions} allLabel="All categories" prefix="Category" />
-        <FilterSelect label="Center" value={siteFilter} onChange={onSiteChange} options={siteOptions} allLabel="All centers" />
-        <FilterSelect label="Exam type" value={examTypeFilter} onChange={onExamTypeChange} options={examTypeOptions} allLabel="All exam types" />
+        <FilterSelect
+          label="Category"
+          value={categoryFilter}
+          onChange={onCategoryChange}
+          options={categoryOptions}
+          allLabel="All categories"
+          prefix="Category"
+        />
+        <label className="text-sm font-medium text-slate-700">
+          Center
+          <input
+            readOnly
+            value={SYSTEM_EXAM_CENTER}
+            className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-sm text-slate-700"
+          />
+        </label>
+        <FilterSelect
+          label="Exam type"
+          value={examTypeFilter}
+          onChange={onExamTypeChange}
+          options={examTypeOptions}
+          allLabel="All exam types"
+        />
       </div>
     </div>
   );

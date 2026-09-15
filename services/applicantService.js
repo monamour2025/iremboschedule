@@ -12,7 +12,7 @@ import { extractIremboApplicationNumber, isExistingApplicationMessage } from "..
 import { resolveEntityIdForInput, repairStuckProfileApplicants, cacheEntityId, requireEntityIdInput, isValidEntityId, tryResolveEntityIdForExistingLicense } from "./entityIdService.js";
 import { normalizeRwandaPhone, resolveIremboNotificationContact } from "../lib/iremboContact.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
-import { examCentersMatch } from "../lib/examCenters.js";
+import { examCentersMatch, isSystemExamCenter, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
 import { formatScheduleTimeLocal, normalizeExamTimeInput, resolveScheduleTime } from "../lib/scheduleTime.js";
 import {
   applicantOwnsCategory,
@@ -44,6 +44,15 @@ export function normalizeLocation(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function lockApplicantExamSite(input = {}) {
+  return {
+    ...input,
+    examCenter: SYSTEM_EXAM_CENTER,
+    preferredLocation: SYSTEM_EXAM_LOCATION,
+    location: SYSTEM_EXAM_LOCATION
+  };
+}
+
 export function scheduleMatchesApplicant(applicant, schedule) {
   const wantedCategory = String(
     applicant.requestedLicenseCategory || applicant.licenseCategory || ""
@@ -55,13 +64,7 @@ export function scheduleMatchesApplicant(applicant, schedule) {
     return false;
   }
 
-  const preferredLocation = String(applicant.preferredLocation || "").trim();
-  if (preferredLocation && normalizeLocation(preferredLocation) !== normalizeLocation(schedule.location)) {
-    return false;
-  }
-
-  const preferredCenter = String(applicant.examCenter || "").trim();
-  if (preferredCenter && !examCentersMatch(schedule.center, preferredCenter)) {
+  if (!isSystemExamCenter(schedule.center)) {
     return false;
   }
 
@@ -123,27 +126,24 @@ async function resolveRequestedSchedule(selectedScheduleId, licenseCategory, exp
     throw error;
   }
 
-  const normalizedExpectedCenter = String(expectedCenter || "").trim();
-  if (normalizedExpectedCenter && !examCentersMatch(schedule.center, normalizedExpectedCenter)) {
-    const error = new Error("Selected slot does not match the chosen exam site.");
+  const normalizedExpectedCenter = String(expectedCenter || SYSTEM_EXAM_CENTER).trim();
+  if (!isSystemExamCenter(schedule.center) || !examCentersMatch(schedule.center, SYSTEM_EXAM_CENTER)) {
+    const error = new Error(`Only ${SYSTEM_EXAM_CENTER} slots are allowed.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  if (normalizedExpectedCenter && !isSystemExamCenter(normalizedExpectedCenter)) {
+    const error = new Error(`Only ${SYSTEM_EXAM_CENTER} is allowed.`);
     error.statusCode = 400;
     throw error;
   }
 
-  const preferredLocation = schedule.location || "";
-  if (!preferredLocation) {
-    const error = new Error("Could not determine district from the selected slot.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const examDate = schedule.startDateTime ? new Date(schedule.startDateTime) : null;
   return {
     schedule,
-    preferredLocation,
-    examCenter: schedule.center || "",
-    examDate,
-    examTime: formatExamTimeFromDate(examDate)
+    preferredLocation: SYSTEM_EXAM_LOCATION,
+    examCenter: SYSTEM_EXAM_CENTER,
+    examDate: schedule.startDateTime ? new Date(schedule.startDateTime) : null,
+    examTime: formatExamTimeFromDate(schedule.startDateTime)
   };
 }
 
@@ -590,6 +590,7 @@ function serializeApplication(application) {
 export async function createApplicant(input) {
   await ensureDatabaseSchema();
   assertAutomationModels();
+  input = lockApplicantExamSite(input);
 
   const applicationType = normalizeApplicationType(input.applicationType);
   if (applicationType === APPLICATION_TYPE_ADD_CATEGORY) {
@@ -1041,6 +1042,7 @@ async function refreshBulkApplicant(applicantId) {
 export async function createApplicantForBulk(input, batchId) {
   await ensureDatabaseSchema();
   assertAutomationModels();
+  input = lockApplicantExamSite(input);
 
   const applicationType = normalizeApplicationType(input.applicationType);
   if (applicationType === APPLICATION_TYPE_ADD_CATEGORY) {
@@ -1213,6 +1215,7 @@ export async function createApplicantForBulk(input, batchId) {
 
 export async function updateBulkDraftApplicant(id, input) {
   await ensureDatabaseSchema();
+  input = lockApplicantExamSite(input);
   const existing = await prisma.applicant.findUnique({
     where: { id: Number(id) },
     include: { batch: true }
@@ -1389,6 +1392,7 @@ export async function deleteBulkDraftApplicant(id) {
 }
 
 export async function updateApplicant(id, input) {
+  input = lockApplicantExamSite(input);
   const data = {};
   if (input.fullName !== undefined) data.fullName = input.fullName.trim();
   if (input.dateOfBirth !== undefined) data.dateOfBirth = input.dateOfBirth ? new Date(input.dateOfBirth) : null;
@@ -1434,17 +1438,23 @@ export async function assignScheduleToApplicant(applicantId, assignment) {
     ? extractRawScheduleId(assignment.examScheduleId)
     : extractRawScheduleId(assignment.assignedScheduleId);
 
-  const preferredLocation = String(
-    assignment.preferredLocation || assignment.locationName || assignment.location || ""
-  ).trim();
+  const existing = await prisma.applicant.findUnique({ where: { id: Number(applicantId) } });
+  if (!existing) {
+    throw new Error("Applicant not found");
+  }
+
+  const bookedCenter = String(assignment.examCenter || SYSTEM_EXAM_CENTER).trim();
+  if (!isSystemExamCenter(bookedCenter)) {
+    throw new Error(`Only ${SYSTEM_EXAM_CENTER} slots can be assigned.`);
+  }
 
   const applicant = await prisma.applicant.update({
     where: { id: Number(applicantId) },
     data: {
-      examCenter: assignment.examCenter || "",
+      examCenter: SYSTEM_EXAM_CENTER,
+      preferredLocation: SYSTEM_EXAM_LOCATION,
       examDate: assignment.examDate ? new Date(assignment.examDate) : null,
       examTime: assignment.examTime || "",
-      ...(preferredLocation ? { preferredLocation } : {}),
       assignedScheduleId: assignment.assignedScheduleId || null,
       status: "PENDING",
       lastError: null

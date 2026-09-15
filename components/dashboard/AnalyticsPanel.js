@@ -123,7 +123,7 @@ export default function AnalyticsPanel({ analytics }) {
           </div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Most active centers</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">BUSANZA AUTOMATED CENTER</h3>
           <div className="mt-4">
             <BarChart items={activeCenters} emptyLabel="No active centers yet." />
           </div>
@@ -133,7 +133,7 @@ export default function AnalyticsPanel({ analytics }) {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Category availability</h3>
-          <p className="mt-1 text-xs text-slate-500">Open schedules per category and where each category is available.</p>
+          <p className="mt-1 text-xs text-slate-500">Open schedules per category at BUSANZA AUTOMATED CENTER only.</p>
           <div className="mt-4">
             <CategoryAvailability items={categoryBreakdown} />
           </div>

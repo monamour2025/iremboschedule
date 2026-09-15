@@ -18,7 +18,10 @@ import {
   examCentersMatch,
   formatExamCenterLabel,
   preferCanonicalCenter,
-  centerAliasKeys
+  centerAliasKeys,
+  isSystemExamCenter,
+  SYSTEM_EXAM_CENTER,
+  SYSTEM_EXAM_LOCATION
 } from "@/lib/examCenters";
 import { formatScheduleDateLocal, resolveScheduleTime, scheduleMatchesCategory, resolveScheduleCategory } from "@/lib/scheduleTime";
 
@@ -158,13 +161,10 @@ export function ApplicantEntryFields({
     Boolean(normalizedActiveCategory) && normalizedSlotsCategory === normalizedActiveCategory;
   const siteSlotsForRow = slotsReadyForCategory ? siteSlots : [];
   const filteredSlots = availableSlots.filter((schedule) => {
+    if (!isSystemExamCenter(schedule.center)) {
+      return false;
+    }
     if (activeCategory && !matchesActiveCategory(schedule, activeCategory)) {
-      return false;
-    }
-    if (row.preferredLocation && !locationsMatch(schedule.location, row.preferredLocation)) {
-      return false;
-    }
-    if (row.examCenter && !examCentersMatch(schedule.center, row.examCenter)) {
       return false;
     }
     if (!slotOptional && row.preferredExamTime?.trim()) {
@@ -175,6 +175,16 @@ export function ApplicantEntryFields({
     }
     return true;
   });
+
+  useEffect(() => {
+    if (row.examCenter === SYSTEM_EXAM_CENTER && row.preferredLocation === SYSTEM_EXAM_LOCATION) {
+      return;
+    }
+    onChange({
+      examCenter: SYSTEM_EXAM_CENTER,
+      preferredLocation: SYSTEM_EXAM_LOCATION
+    });
+  }, [row.examCenter, row.preferredLocation, onChange]);
 
   useEffect(() => {
     if (!activeCategory) {
@@ -501,11 +511,11 @@ export function ApplicantEntryFields({
           : "Enter national ID, then fetch licence details.";
 
   const estimateHint = slotOptional
-    ? "Pick a site and desired time — automation assigns only matching category + site + time when detected."
+    ? `This system only books ${SYSTEM_EXAM_CENTER} in ${SYSTEM_EXAM_LOCATION}. Choose the desired time — matching category + time slots are assigned automatically.`
     : "";
 
   const slotModeHint =
-    "Select licence category, then exam site — only open slots for that exact category at that site are shown.";
+    `This system only books ${SYSTEM_EXAM_CENTER} (${SYSTEM_EXAM_LOCATION}). Select licence category, then an open date and time at that site.`;
 
   const firstLicenceHint = hasEntityId
     ? "Entity ID saved. Select category, provisional licence, and exam slot."
@@ -617,8 +627,10 @@ export function ApplicantEntryFields({
           onChange={(value) => onChange({ phone: value })}
         />
         <TextField
-          label="Email"
+          label="Email (optional)"
           type="email"
+          required={false}
+          placeholder="Skip if not available"
           value={row.email}
           onChange={(value) => onChange({ email: value })}
         />
@@ -686,42 +698,15 @@ export function ApplicantEntryFields({
             <legend className="px-1 text-sm font-semibold text-teal-950">Estimate preferences</legend>
             <p className="mb-3 text-xs text-teal-800">{estimateHint}</p>
             <div className="grid gap-4 sm:grid-cols-2">
-              <SelectField
-                label="Pick exam site"
-                value={siteSelectValue()}
-                onChange={handleSiteChange}
-                options={[
-                  {
-                    value: "",
-                    label:
-                      examSiteOptions.length === 0 && categorySitesLoading
-                        ? "Loading exam sites..."
-                        : categorySitesLoading
-                          ? "Loading more sites..."
-                          : examSiteOptions.length === 0
-                            ? "Type site name below"
-                            : "Select site from list..."
-                  },
-                  ...examSiteOptions.map((site) => ({
-                    value: site.center,
-                    label: site.location
-                      ? `${formatExamCenterLabel(site.center)} · ${site.location}`
-                      : formatExamCenterLabel(site.center)
-                  }))
-                ]}
-              />
               <TextField
-                label="Exam site name"
-                required={false}
-                placeholder="Type exact Irembo site name if not in the list above"
-                value={row.examCenter || ""}
-                onChange={handleManualSiteChange}
+                label="Exam site"
+                value={`${SYSTEM_EXAM_CENTER} · ${SYSTEM_EXAM_LOCATION}`}
+                onChange={() => {}}
+                readOnly
               />
-              {row.preferredLocation ? (
-                <p className="sm:col-span-2 text-xs text-teal-800">
-                  District/location locked from site: <strong>{row.preferredLocation}</strong>
-                </p>
-              ) : null}
+              <p className="sm:col-span-2 text-xs text-teal-800">
+                Other Irembo sites are ignored so SMS and booking always match this center.
+              </p>
               <SelectField
                 label="Desired time"
                 value={row.preferredExamTime || ""}
@@ -776,26 +761,11 @@ export function ApplicantEntryFields({
             ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               {pickSlotSiteReady ? (
-                <SelectField
+                <TextField
                   label="Exam site"
-                  value={siteSelectValue()}
-                  onChange={handleSiteChange}
-                  options={[
-                    {
-                      value: "",
-                      label: slotsLoading || categorySitesLoading
-                        ? "Loading sites..."
-                        : examSiteOptions.length === 0
-                          ? "No exam sites found for this category"
-                          : "Select exam site..."
-                    },
-                    ...examSiteOptions.map((site) => ({
-                      value: site.center,
-                      label: site.location
-                        ? `${formatExamCenterLabel(site.center)} · ${site.location}`
-                        : formatExamCenterLabel(site.center)
-                    }))
-                  ]}
+                  value={`${SYSTEM_EXAM_CENTER} · ${SYSTEM_EXAM_LOCATION}`}
+                  onChange={() => {}}
+                  readOnly
                 />
               ) : null}
               {!pickSlotSiteReady ? null : !row.examCenter ? (

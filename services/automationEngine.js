@@ -5,7 +5,7 @@ import { isApplicantHeldForBatch } from "../lib/bulkAutomationHold.js";
 import { appendFailedScheduleId } from "../lib/failedSchedules.js";
 import { extractIremboApplicationNumber } from "../lib/iremboApplicationNumbers.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
-import { examCentersMatch } from "../lib/examCenters.js";
+import { examCentersMatch, isSystemExamCenter, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
 import {
   buildExamScheduleDate,
   createDrivingLicenseApplication,
@@ -28,7 +28,8 @@ import {
 import {
   createApplicationRecord,
   getLatestApplicationForApplicant,
-  updateApplicationRecord
+  updateApplicationRecord,
+  assertExamScheduleAvailableForApplicant
 } from "../services/applicationService.js";
 import { logAutomationEvent } from "../services/automationLogService.js";
 import { sendApplicationCreatedNotification } from "../services/automationNotificationService.js";
@@ -47,7 +48,7 @@ function resolveAssignedSchedule(applicantRecord) {
   }
 
   return {
-    examCenter: applicantRecord.examCenter,
+    examCenter: SYSTEM_EXAM_CENTER,
     examDate: applicantRecord.examDate,
     examTime: applicantRecord.examTime
   };
@@ -164,7 +165,7 @@ function isRateLimitError(error) {
 async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, failedScheduleIds) {
   const bookingContext = {
     category: resolveAutomationLicenseCategory(applicantRecord),
-    location: applicantRecord.preferredLocation
+    location: SYSTEM_EXAM_LOCATION
   };
 
   let lastError = null;
@@ -180,7 +181,10 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
       return null;
     }
 
-    const preferredCenter = String(assignedSchedule.examCenter || applicantRecord.examCenter || "").trim();
+    const preferredCenter = SYSTEM_EXAM_CENTER;
+    if (candidate.examCenter && !isSystemExamCenter(candidate.examCenter)) {
+      return null;
+    }
     if (
       preferredCenter &&
       candidate.examCenter &&
@@ -189,7 +193,7 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
       return null;
     }
 
-    const preferredLocation = String(applicantRecord.preferredLocation || "").trim();
+    const preferredLocation = SYSTEM_EXAM_LOCATION;
     const preferredTime = String(assignedSchedule.examTime || applicantRecord.preferredExamTime || "").trim();
     if (
       preferredTime &&
@@ -381,22 +385,14 @@ export async function runApplicantAutomation(applicantId) {
         failedScheduleIds
       );
 
-      if (
-        booking.examCenter !== assignedSchedule.examCenter ||
-        booking.examTime !== assignedSchedule.examTime ||
-        (booking.locationName && booking.locationName !== applicantRecord.preferredLocation)
+      if (!isSystemExamCenter(booking.examCenter) ||
+        (booking.examTime &&
+          assignedSchedule.examTime &&
+          String(booking.examTime).trim() !== String(assignedSchedule.examTime).trim())
       ) {
-        await assignScheduleToApplicant(applicantId, {
-          examScheduleId: booking.examScheduleId,
-          examCenter: booking.examCenter,
-          examDate: booking.examDate,
-          examTime: booking.examTime,
-          preferredLocation: booking.locationName || applicantRecord.preferredLocation,
-          assignedScheduleId: applicantRecord.assignedScheduleId
-        });
-        if (booking.locationName) {
-          applicantRecord.preferredLocation = booking.locationName;
-        }
+        throw new Error(
+          `Irembo offered ${booking.examCenter || "a different site"} at ${booking.examTime || "a different time"}, which is not the locked ${SYSTEM_EXAM_CENTER} slot.`
+        );
       }
 
       await logAutomationEvent({
@@ -423,17 +419,19 @@ export async function runApplicantAutomation(applicantId) {
 
       const notificationPhone = normalizeRwandaPhone(applicantRecord.phone);
 
+      await assertExamScheduleAvailableForApplicant(applicantId, booking.examScheduleId);
+
       const created = await createDrivingLicenseApplication({
         entityId,
         provisionalLicenseNumber: license.licenseNumber,
         examScheduleId: booking.examScheduleId,
         temporaryBookingId: booking.temporaryBookingId,
         licenseCategory: resolveAutomationLicenseCategory(applicantRecord),
-        examCenter: booking.examCenter,
+        examCenter: SYSTEM_EXAM_CENTER,
         examType: applicantRecord.examType,
         examScheduleDate: buildExamScheduleDate(booking.examDate, booking.examTime),
-        preferredLocation: applicantRecord.preferredLocation,
-        locationName: booking.locationName || applicantRecord.preferredLocation,
+        preferredLocation: SYSTEM_EXAM_LOCATION,
+        locationName: SYSTEM_EXAM_LOCATION,
         amount: booking.amount,
         phone: applicantRecord.phone,
         email: applicantRecord.email,
@@ -477,7 +475,9 @@ export async function runApplicantAutomation(applicantId) {
       const completionNote = created.alreadyExists
         ? iremboMessage ||
           `Application ${created.applicationNumber} already exists on Irembo — no new SMS is sent. Check earlier messages or pay outstanding fees.`
-        : `Application ${created.applicationNumber} submitted. Irembo SMS/email goes to ${notificationPhone} and ${applicantRecord.email} within a few minutes.`;
+        : `Application ${created.applicationNumber} submitted. Irembo SMS goes to ${notificationPhone}${
+            applicantRecord.email ? ` and email to ${applicantRecord.email}` : ""
+          } within a few minutes.`;
 
       await setApplicantStatus(applicantId, "APPLICATION_CREATED", completionNote);
 
@@ -487,7 +487,12 @@ export async function runApplicantAutomation(applicantId) {
           phone: applicantRecord.phone,
           fullName: applicantRecord.fullName,
           applicationNumber: created.applicationNumber,
-          status: created.applicationState || "PAYMENT_PENDING"
+          status: created.applicationState || "PAYMENT_PENDING",
+          examCenter: SYSTEM_EXAM_CENTER,
+          location: SYSTEM_EXAM_LOCATION,
+          examDate: booking.examDate,
+          examTime: booking.examTime,
+          category: resolveAutomationLicenseCategory(applicantRecord)
         });
       }
 

@@ -30,20 +30,31 @@ export async function sendApplicationCreatedNotification({
   phone,
   fullName,
   applicationNumber,
-  status
+  status,
+  examCenter,
+  location,
+  examDate,
+  examTime,
+  category
 }) {
   const paymentCode = String(applicationNumber || "").trim();
+  const siteLine = [examCenter, location].filter(Boolean).join(" · ");
+  const slotLine = [examDate, examTime].filter(Boolean).join(" ");
   const title = paymentCode ? `Kode yo kwishyura · ${paymentCode}` : "Driving license application created";
   const message = [
     `Muraho ${fullName}, dosiye yawe yoherejwe neza kuri Irembo.`,
     "",
     `Kode yo kwishyura: ${paymentCode}`,
-    `Payment code: ${paymentCode}`,
+    category ? `Category: ${category}` : null,
+    siteLine ? `Ikigo / Site: ${siteLine}` : null,
+    slotLine ? `Igihe / Time: ${slotLine}` : null,
     "",
     `Status: ${status}`,
     "",
     "Wishyura kuri Irembo ukoresheje iyi kode."
-  ].join("\n");
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
 
   try {
     const targets = await getNotificationTargets().catch(() => ({
@@ -71,7 +82,12 @@ export async function sendApplicationCreatedNotification({
       emailMeta: {
         fullName,
         applicationNumber,
-        status
+        status,
+        examCenter,
+        location,
+        examDate,
+        examTime,
+        category
       },
       targets: {
         email: email || targets.email,

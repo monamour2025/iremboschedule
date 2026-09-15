@@ -20,6 +20,7 @@ import {
   timeMatchesRequestedSlot
 } from "../lib/scheduleTime.js";
 import { resolveIremboNotificationContact } from "../lib/iremboContact.js";
+import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
 import { isValidNationalIdInput, normalizeNationalIdInput } from "../lib/nationalId.js";
 
 const BASE_URL = process.env.IREMBO_BASE_URL || "https://irembo.gov.rw/irembo/rest/public";
@@ -582,16 +583,13 @@ async function listLiveScheduleCandidates({
   examTime
 }) {
   const selectedDate = formatScheduleDateLocal(examDate);
-  const headers = policeHeaders(licenseCategory, location);
-  const centers = (await queryPoliceRequest("test-centers", { selectedDate }, headers)) || [];
+  const lockedLocation = SYSTEM_EXAM_LOCATION;
+  const lockedCenter = SYSTEM_EXAM_CENTER;
+  const headers = policeHeaders(licenseCategory, lockedLocation);
   const timeRanges =
     (await queryPoliceRequest("time-ranges", { selectedDate }, headers)) || ["07:00 - 09:00"];
 
-  const preferredCenters = (
-    examCenter
-      ? [examCenter]
-      : centers
-  ).filter(Boolean);
+  const preferredCenters = [lockedCenter];
 
   const candidates = [];
   for (const testCenter of preferredCenters) {
@@ -603,7 +601,7 @@ async function listLiveScheduleCandidates({
 
       const rows = await queryFilteredSchedules({
         category: licenseCategory,
-        location,
+        location: lockedLocation,
         page: 1,
         limit: 20,
         selectedDate,
@@ -624,15 +622,20 @@ async function listLiveScheduleCandidates({
           continue;
         }
 
+        const rowCenter = row.center || row.testCenter || testCenter;
+        if (!isSystemExamCenter(rowCenter)) {
+          continue;
+        }
+
         const resolvedTime = examTime || candidateTime;
         candidates.push({
           examScheduleId: bookableId,
-          examCenter: row.center || row.testCenter || testCenter,
+          examCenter: SYSTEM_EXAM_CENTER,
           examDate: parseIremboLocalDateTime(selectedDate, resolvedTime),
           examTime: resolvedTime,
           schedule: row,
           testCenter,
-          locationName: row.locationName || location,
+          locationName: SYSTEM_EXAM_LOCATION,
           amount: Number(row.price ?? row.examFee ?? 0) || null
         });
       }
@@ -651,28 +654,28 @@ export async function findExamSchedule({
 }) {
   const candidates = await listLiveScheduleCandidates({
     licenseCategory,
-    location,
-    examCenter,
+    location: SYSTEM_EXAM_LOCATION,
+    examCenter: SYSTEM_EXAM_CENTER,
     examDate,
     examTime
   });
 
-  if (candidates.length === 0) {
+  const match = candidates.find((candidate) => isSystemExamCenter(candidate.examCenter)) || null;
+
+  if (!match) {
     const selectedDate = formatScheduleDateLocal(examDate);
     throw new Error(
       `No live schedule found for ${examCenter} on ${selectedDate} at ${examTime} (${location})`
     );
   }
-
-  const match = candidates[0];
   return {
     examScheduleId: match.examScheduleId,
     schedule: match.schedule,
     selectedDate: new Date(examDate).toISOString().slice(0, 10),
     startTime: match.examTime,
     endTime: match.examTime,
-    location,
-    locationName: match.locationName || location,
+    location: SYSTEM_EXAM_LOCATION,
+    locationName: SYSTEM_EXAM_LOCATION,
     amount: match.amount,
     examCenter: match.examCenter,
     examDate: match.examDate,
@@ -736,7 +739,8 @@ export async function createDrivingLicenseApplication(input) {
     : "createDrivingLicenseApplication";
 
   const examLanguage = normalizeExamLanguage(input.examLanguage);
-  const locationName = input.locationName || input.preferredLocation;
+  const locationName = SYSTEM_EXAM_LOCATION;
+  const examCenterName = SYSTEM_EXAM_CENTER;
   const approvingOfficeLocationId =
     input.approvingOfficeLocationId || (await resolveApprovingOfficeLocationId(locationName));
   const { notificationPhone, notificationEmail } = resolveIremboNotificationContact({
@@ -755,7 +759,7 @@ export async function createDrivingLicenseApplication(input) {
     temporaryBookingId: input.temporaryBookingId,
     licenseCategoryRequested: input.licenseCategory,
     provisionalLicenseNumber: input.provisionalLicenseNumber,
-    examCenterName: input.examCenter,
+    examCenterName,
     examFormat: input.examType || "PRACTICAL",
     examLanguage,
     nls: examLanguage,
