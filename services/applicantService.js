@@ -93,7 +93,7 @@ function formatExamTimeFromDate(value) {
 }
 
 function resolvePreferredExamTimeInput(input, fallback = "") {
-  return normalizeExamTimeInput(input.preferredExamTime || fallback);
+  return normalizeExamTimeInput(input.preferredExamTime || input.examTime || fallback);
 }
 
 function resolveMatchedExamScheduleId(selectedScheduleId) {

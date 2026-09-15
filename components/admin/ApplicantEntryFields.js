@@ -23,7 +23,13 @@ import {
   SYSTEM_EXAM_CENTER,
   SYSTEM_EXAM_LOCATION
 } from "@/lib/examCenters";
-import { formatScheduleDateLocal, resolveScheduleTime, scheduleMatchesCategory, resolveScheduleCategory } from "@/lib/scheduleTime";
+import {
+  formatScheduleDateLocal,
+  normalizeExamTimeInput,
+  resolveScheduleTime,
+  scheduleMatchesCategory,
+  resolveScheduleCategory
+} from "@/lib/scheduleTime";
 
 const ENTITY_ID_HELP =
   "From irembo.gov.rw: open the driving-licence form with the same National ID → DevTools → Network → record/external → profileDto.entityId";
@@ -365,8 +371,14 @@ export function ApplicantEntryFields({
     row,
     strictSiteFilter: Boolean(row.examCenter?.trim())
   });
-  const estimateTimeOptions = [...new Set([...timesFromSlots, ...centerTimes])].sort();
+  const typedDesiredTime = normalizeExamTimeInput(row.preferredExamTime || row.examTime);
+  const estimateTimeOptions = [...new Set([...timesFromSlots, ...centerTimes, typedDesiredTime].filter(Boolean))].sort();
   const timeOptions = estimateTimeOptions;
+
+  function applyDesiredTime(value) {
+    const preferredExamTime = normalizeExamTimeInput(value);
+    onChange({ preferredExamTime, examTime: preferredExamTime });
+  }
 
   const pickNowSiteSlots = useMemo(() => {
     if (slotOptional || !row.examCenter?.trim() || !normalizedActiveCategory || !slotsReadyForCategory) {
@@ -393,18 +405,20 @@ export function ApplicantEntryFields({
 
   function handleSlotChange(scheduleId) {
     if (!scheduleId) {
-      onChange({ selectedScheduleId: "", preferredExamTime: "" });
+      onChange({ selectedScheduleId: "", preferredExamTime: "", examTime: "" });
       return;
     }
     const schedule = pickNowSiteSlots.find((slot) => slot.scheduleId === scheduleId);
     if (!schedule || !matchesActiveCategory(schedule, normalizedActiveCategory)) {
       return;
     }
+    const slotTime = resolveScheduleTime(schedule) || row.preferredExamTime || "";
     onChange({
       selectedScheduleId: scheduleId,
       preferredLocation: schedule?.location || "",
       examCenter: preferCanonicalCenter(schedule?.center || row.examCenter || ""),
-      preferredExamTime: resolveScheduleTime(schedule) || row.preferredExamTime
+      preferredExamTime: slotTime,
+      examTime: slotTime
     });
   }
 
@@ -511,7 +525,7 @@ export function ApplicantEntryFields({
           : "Enter national ID, then fetch licence details.";
 
   const estimateHint = slotOptional
-    ? `This system only books ${SYSTEM_EXAM_CENTER} in ${SYSTEM_EXAM_LOCATION}. Choose the desired time — matching category + time slots are assigned automatically.`
+    ? `This system only books ${SYSTEM_EXAM_CENTER} in ${SYSTEM_EXAM_LOCATION}. Select a listed time or type one — the typed time is the desired time.`
     : "";
 
   const slotModeHint =
@@ -709,8 +723,9 @@ export function ApplicantEntryFields({
               </p>
               <SelectField
                 label="Desired time"
-                value={row.preferredExamTime || ""}
-                onChange={(value) => onChange({ preferredExamTime: value })}
+                required={false}
+                value={typedDesiredTime}
+                onChange={applyDesiredTime}
                 options={[
                   {
                     value: "",
@@ -718,21 +733,24 @@ export function ApplicantEntryFields({
                       ? "Loading times..."
                       : estimateTimeOptions.length === 0
                         ? row.examCenter
-                          ? "No times for this site yet — type below"
+                          ? "No listed times yet — type below"
                           : "Select exam site first"
-                        : `Select desired time (${estimateTimeOptions.length} available)...`
+                        : `Select a listed time (${estimateTimeOptions.length}) or type below`
                   },
                   ...timeOptions.map((time) => ({ value: time, label: time }))
                 ]}
               />
               <label className="text-sm font-medium text-slate-800">
-                Type desired time
+                Type time
                 <input
                   type="time"
-                  value={row.preferredExamTime || ""}
-                  onChange={(event) => onChange({ preferredExamTime: event.target.value })}
+                  value={typedDesiredTime}
+                  onChange={(event) => applyDesiredTime(event.target.value)}
                   className="mt-1 h-10 w-full rounded-lg border border-teal-200 bg-white px-3 text-sm"
                 />
+                <span className="mt-1 block text-xs font-normal text-slate-600">
+                  Typing a time sets Desired time. You do not need to pick from the list.
+                </span>
               </label>
             </div>
             <label className="mt-4 block text-sm font-medium text-slate-800">

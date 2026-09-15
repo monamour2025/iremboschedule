@@ -175,6 +175,10 @@ export function SelectField({ label, value, onChange, options, required = true }
 export const APPLICATION_TYPE_FIRST_LICENCE = "FIRST_LICENCE";
 export const APPLICATION_TYPE_ADD_CATEGORY = "ADD_CATEGORY";
 
+export function applicantDesiredTime(row) {
+  return String(row?.preferredExamTime || row?.examTime || "").trim();
+}
+
 export const emptyApplicantRow = {
   applicationType: APPLICATION_TYPE_FIRST_LICENCE,
   fullName: "",
@@ -189,6 +193,7 @@ export const emptyApplicantRow = {
   examCenter: "BUSANZA AUTOMATED CENTER",
   preferredLocation: "Kicukiro",
   preferredExamTime: "",
+  examTime: "",
   entityId: "",
   entityIdLookupStatus: "idle",
   entityIdLookupError: "",

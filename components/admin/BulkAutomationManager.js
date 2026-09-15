@@ -16,6 +16,7 @@ import {
   statusTone,
   TextField,
   isValidEntityId,
+  applicantDesiredTime,
   APPLICATION_TYPE_ADD_CATEGORY
 } from "@/components/admin/applicantUi";
 
@@ -244,7 +245,7 @@ export default function BulkAutomationManager() {
         setError(`${missingSite.fullName || "Each applicant"} needs a preferred exam site.`);
         return;
       }
-      const missingTime = rows.find((row) => !row.selectedScheduleId && !row.preferredExamTime?.trim());
+      const missingTime = rows.find((row) => !row.selectedScheduleId && !applicantDesiredTime(row));
       if (missingTime) {
         setError(`${missingTime.fullName || "Each applicant"} needs a desired time for auto-matching.`);
         return;
@@ -448,7 +449,7 @@ export default function BulkAutomationManager() {
         selectedScheduleId: row.assignedScheduleId || "",
         preferredLocation: row.preferredLocation || "",
         examCenter: row.examCenter || "",
-        preferredExamTime: row.preferredExamTime || "",
+        preferredExamTime: applicantDesiredTime(row),
         entityId: row.entityId || ""
       });
       await loadEditSlots(row.licenseCategory || "A", row.preferredLocation || "", row.examCenter || "");
@@ -500,8 +501,8 @@ export default function BulkAutomationManager() {
       setError("Select a preferred exam site.");
       return;
     }
-    if (!editForm.preferredExamTime?.trim()) {
-      setError("Select a desired time.");
+    if (!applicantDesiredTime(editForm)) {
+      setError("Type or select a desired time.");
       return;
     }
     if (!isValidEntityId(editForm.entityId)) {
@@ -816,7 +817,7 @@ export default function BulkAutomationManager() {
                   (!editForm.selectedScheduleId &&
                     (!editForm.preferredLocation?.trim() ||
                     !editForm.examCenter?.trim() ||
-                    !editForm.preferredExamTime?.trim()))
+                    !applicantDesiredTime(editForm)))
                 }
                 className="h-10 rounded-lg bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
               >
