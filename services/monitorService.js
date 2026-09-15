@@ -66,20 +66,7 @@ export async function runScan(options = {}) {
 
     await bulkUpsertSchedules(latestSchedules, startedAt, tx);
 
-    await tx.schedule.deleteMany({
-      where: {
-        OR: [
-          {
-            NOT: {
-              center: { equals: SYSTEM_EXAM_CENTER, mode: "insensitive" }
-            }
-          },
-          { startDateTime: { lte: startedAt } },
-          { startDateTime: null },
-          { remainingCapacity: { lte: 0 } }
-        ]
-      }
-    });
+    await purgeStaleMonitorSchedulesInTx(tx, startedAt);
 
     if (scanMeta.scannedScopes.length > 0 && latestScheduleIds.length > 0) {
       await tx.schedule.deleteMany({
@@ -140,32 +127,42 @@ export async function runScan(options = {}) {
   };
 }
 
-export async function purgeExpiredAndClosedSchedules(now = new Date()) {
-  await prisma.schedule.deleteMany({
+export async function purgeExpiredAndClosedSchedules(now = new Date(), client = prisma) {
+  await client.schedule.deleteMany({
     where: {
       OR: [{ startDateTime: { lte: now } }, { startDateTime: null }, { remainingCapacity: { lte: 0 } }]
     }
   });
 }
 
-export async function purgeStaleMonitorSchedules(now = new Date()) {
-  await purgeNonSystemExamSchedules();
-  await purgeExpiredAndClosedSchedules(now);
+export async function purgeNonSystemExamSchedules(client = prisma) {
+  await client.schedule.deleteMany({
+    where: {
+      NOT: systemExamCenterDbWhere()
+    }
+  });
+}
+
+export async function purgeStaleMonitorSchedules(now = new Date(), client = prisma) {
+  await purgeNonSystemExamSchedules(client);
+  await purgeExpiredAndClosedSchedules(now, client);
+}
+
+async function purgeStaleMonitorSchedulesInTx(tx, now) {
+  await purgeStaleMonitorSchedules(now, tx);
 }
 
 export async function getStatus() {
   await ensureDatabaseSchema();
-  await purgeStaleMonitorSchedules();
   const centerWhere = systemExamCenterDbWhere();
   const availableWhere = {
     remainingCapacity: { gt: 0 },
     startDateTime: { gt: new Date() },
     ...centerWhere
   };
-  const [lastSnapshot, scheduleCount, availableScheduleCount, slotAggregate, changeCount, latestChange] =
+  const [lastSnapshot, availableScheduleCount, slotAggregate, changeCount, latestChange] =
     await Promise.all([
       prisma.snapshot.findFirst({ orderBy: { createdAt: "desc" } }),
-      prisma.schedule.count({ where: centerWhere }),
       prisma.schedule.count({ where: availableWhere }),
       prisma.schedule.aggregate({
         where: availableWhere,
@@ -182,7 +179,7 @@ export async function getStatus() {
     ok: true,
     status: "READY",
     lastScanAt: lastSnapshot?.createdAt?.toISOString() || null,
-    scheduleCount,
+    scheduleCount: availableScheduleCount,
     availableScheduleCount,
     remainingSlots: Number(slotAggregate._sum.remainingCapacity || 0),
     changeCount,
@@ -201,7 +198,6 @@ export async function getStatus() {
 
 export async function listSchedules(options = {}) {
   await ensureDatabaseSchema();
-  await purgeStaleMonitorSchedules();
   const availableOnly = options.availableOnly !== false;
   const limit = Number(options.limit || process.env.SCHEDULES_API_LIMIT || 3000);
   const where = { ...systemExamCenterDbWhere() };

@@ -49,8 +49,6 @@ async function safeNotificationCount() {
 export async function getAnalyticsSummary() {
   await ensureDatabaseSchema();
   try {
-    const { purgeStaleMonitorSchedules } = await import("./monitorService.js");
-    await purgeStaleMonitorSchedules();
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const centerWhere = systemExamCenterDbWhere();
     const availableWhere = { remainingCapacity: { gt: 0 }, startDateTime: { gt: new Date() }, ...centerWhere };

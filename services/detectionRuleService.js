@@ -85,16 +85,7 @@ function normalizeSettings(row) {
 
 export async function getMonitorSettings() {
   const row = await readMonitorSettingsRow();
-  const settings = normalizeSettings(row);
-  if (row && String(row.alertEmail || "").trim().toLowerCase() !== settings.alertEmail.toLowerCase()) {
-    await writeMonitorSettingsRow({
-      autoNotifyAll: settings.autoNotifyAll,
-      alertEmail: settings.alertEmail,
-      alertPhone: settings.alertPhone,
-      alertWebhookUrl: settings.alertWebhookUrl
-    });
-  }
-  return settings;
+  return normalizeSettings(row);
 }
 
 export async function getNotificationTargets() {
