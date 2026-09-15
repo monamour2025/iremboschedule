@@ -27,7 +27,7 @@ import {
   canonicalizeSchedule
 } from "@/lib/monitorPriority";
 import { BUSANZA_AUTOMATED_CENTER, isSystemExamCenter, SYSTEM_EXAM_CENTER } from "@/lib/examCenters";
-import { scheduleMatchesCategory } from "@/lib/scheduleTime";
+import { isOpenUpcomingSchedule, scheduleMatchesCategory } from "@/lib/scheduleTime";
 
 const tabs = [
   ["overview", "Overview"],
@@ -155,7 +155,7 @@ export default function Dashboard({
       const matchesSite = matchesSiteFilter(schedule, siteFilter);
       const matchesExamType =
         examTypeFilter === "all" || (status?.monitor?.service || "PRACTICAL_EXAM") === examTypeFilter;
-      return matchesCategory && matchesSite && matchesExamType && isSystemExamCenter(schedule.center);
+      return matchesCategory && matchesSite && matchesExamType && isSystemExamCenter(schedule.center) && (schedule.rowType !== "ACTIVE" || isOpenUpcomingSchedule(schedule));
     });
   }, [
     categoryFilter,

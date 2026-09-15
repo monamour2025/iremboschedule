@@ -18,7 +18,7 @@ import {
   listWaitingApplicants,
   scheduleMatchesApplicant
 } from "./applicantService.js";
-import { formatScheduleTimeLocal, sortSchedulesByPreferredTime, applicantPreferredTimeDistance } from "../lib/scheduleTime.js";
+import { formatScheduleTimeLocal, sortSchedulesByPreferredTime, applicantPreferredTimeDistance, isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
 
 export { extractRawScheduleId } from "../lib/scheduleIds.js";
 
@@ -115,7 +115,11 @@ export async function assignScheduleFromMonitor(applicantId, scheduleId) {
 }
 
 export async function matchApplicantsToSchedule(schedule) {
-  if (!schedule || Number(schedule.remainingCapacity || 0) <= 0 || !isSystemExamCenter(schedule.center)) {
+  if (
+    !schedule ||
+    !isOpenUpcomingSchedule(schedule) ||
+    !isSystemExamCenter(schedule.center)
+  ) {
     return [];
   }
 

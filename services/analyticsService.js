@@ -2,6 +2,7 @@ import { ensureDatabaseSchema } from "../lib/ensureSchema.js";
 import { prisma } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { isSystemExamCenter, normalizeCenterName, systemExamCenterDbWhere } from "../lib/examCenters.js";
+import { isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
 
 function parseScheduleFromChange(change) {
   if (!change?.newValue) {
@@ -48,11 +49,11 @@ async function safeNotificationCount() {
 export async function getAnalyticsSummary() {
   await ensureDatabaseSchema();
   try {
-    const { purgeNonSystemExamSchedules } = await import("./monitorService.js");
-    await purgeNonSystemExamSchedules();
+    const { purgeStaleMonitorSchedules } = await import("./monitorService.js");
+    await purgeStaleMonitorSchedules();
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const centerWhere = systemExamCenterDbWhere();
-    const availableWhere = { remainingCapacity: { gt: 0 }, ...centerWhere };
+    const availableWhere = { remainingCapacity: { gt: 0 }, startDateTime: { gt: new Date() }, ...centerWhere };
 
     const [
       totalSchedules,
@@ -102,7 +103,7 @@ export async function getAnalyticsSummary() {
         detectedAt: change.createdAt,
         schedule: parseScheduleFromChange(change)
       }))
-      .filter((detection) => isSystemExamCenter(detection.schedule?.center))
+      .filter((detection) => isSystemExamCenter(detection.schedule?.center) && isOpenUpcomingSchedule(detection.schedule))
       .slice(0, 20);
 
     const systemChanges = recentChanges.filter((change) => {

@@ -13,7 +13,7 @@ import { resolveEntityIdForInput, repairStuckProfileApplicants, cacheEntityId, r
 import { normalizeRwandaPhone, resolveIremboNotificationContact } from "../lib/iremboContact.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch, isSystemExamCenter, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
-import { formatScheduleTimeLocal, normalizeExamTimeInput, resolveScheduleTime } from "../lib/scheduleTime.js";
+import { formatScheduleTimeLocal, normalizeExamTimeInput, resolveScheduleTime, isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
 import {
   applicantOwnsCategory,
   parseVehicleClasses
@@ -112,8 +112,8 @@ async function resolveRequestedSchedule(selectedScheduleId, licenseCategory, exp
     throw error;
   }
 
-  if (Number(schedule.remainingCapacity || 0) <= 0) {
-    const error = new Error("Selected exam slot is no longer available.");
+  if (!isOpenUpcomingSchedule(schedule)) {
+    const error = new Error("Selected exam slot has already passed or is no longer open.");
     error.statusCode = 400;
     throw error;
   }

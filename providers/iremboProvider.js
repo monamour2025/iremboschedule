@@ -4,7 +4,7 @@ import { applyIremboResponseCookies, mergeCookieString, warmIremboSession } from
 import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
 import { extractBookableScheduleId, extractGuidFromRow } from "../lib/scheduleIds.js";
-import { parseTimeRange, resolveRowStartDateTime, formatScheduleTimeLocal } from "../lib/scheduleTime.js";
+import { formatScheduleTimeLocal, parseTimeRange, resolveRowStartDateTime, isUpcomingSchedule, dedupeOpenUpcomingSchedules } from "../lib/scheduleTime.js";
 import { centerMatchesScanLocation, getIremboScanDistrictForCenter, getMonitorPriorityConfig, isCenterLocationValid, resolveScheduleLocation } from "../lib/monitorPriority.js";
 import { examCentersMatch, isSystemExamCenter, preferCanonicalCenter, centerSearchTerms, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
 
@@ -243,6 +243,9 @@ function keepNormalizedSchedule(schedule, scanLocation) {
   if (!schedule?.scheduleId || !isCenterLocationValid(schedule) || !isSystemExamCenter(schedule.center)) {
     return false;
   }
+  if (!isUpcomingSchedule(schedule)) {
+    return false;
+  }
   const scan = String(scanLocation || SYSTEM_EXAM_LOCATION).trim().toLowerCase();
   const resolved = String(schedule.location || "").trim().toLowerCase();
   if (!scan || !resolved) {
@@ -252,7 +255,12 @@ function keepNormalizedSchedule(schedule, scanLocation) {
 }
 
 function scheduleDedupeKey(schedule) {
-  return `${schedule.scheduleId}|${schedule.startDateTime?.toISOString() || ""}`;
+  return [
+    String(schedule.center || "").trim().toLowerCase(),
+    String(schedule.location || "").trim().toLowerCase(),
+    String(schedule.category || "").trim().toUpperCase(),
+    schedule.startDateTime ? new Date(schedule.startDateTime).toISOString() : schedule.scheduleId
+  ].join("|");
 }
 
 function updateCookie(headers) {
@@ -624,7 +632,7 @@ export async function fetchSchedules(options = {}) {
 
   await appendPriorityCenterSchedules(schedulesById, categories);
 
-  const schedules = [...schedulesById.values()];
+  const schedules = dedupeOpenUpcomingSchedules([...schedulesById.values()]);
   schedules.scanMeta = {
     scannedLocations: uniqueValues(scannedLocations),
     failedLocations: uniqueValues(failedLocations),

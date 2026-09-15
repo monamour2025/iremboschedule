@@ -1,6 +1,7 @@
 import { prisma } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { isSystemExamCenter } from "../lib/examCenters.js";
+import { isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
 import { ensureDatabaseSchema } from "../lib/ensureSchema.js";
 import {
   buildAlertContent,
@@ -28,7 +29,7 @@ function parseJson(value) {
 }
 
 function isNotifiableChange(change, schedule) {
-  if (!schedule || Number(schedule.remainingCapacity || 0) <= 0) {
+  if (!isOpenUpcomingSchedule(schedule)) {
     return false;
   }
   if (!isSystemExamCenter(schedule.center)) {
