@@ -1473,6 +1473,67 @@ export async function assignScheduleToApplicant(applicantId, assignment) {
   return applicant;
 }
 
+export async function claimWaitingApplicantAssignment(applicantId, assignment) {
+  const id = Number(applicantId);
+  const scheduleId = String(assignment.assignedScheduleId || "").trim();
+  const examScheduleId = assignment.examScheduleId
+    ? extractRawScheduleId(assignment.examScheduleId)
+    : extractRawScheduleId(assignment.assignedScheduleId);
+
+  return prisma.$transaction(async (tx) => {
+    if (scheduleId) {
+      const seat = await tx.schedule.updateMany({
+        where: { scheduleId, remainingCapacity: { gt: 0 } },
+        data: { remainingCapacity: { decrement: 1 } }
+      });
+      if (seat.count === 0) {
+        return null;
+      }
+    }
+
+    const claimed = await tx.applicant.updateMany({
+      where: { id, status: "WAITING_FOR_SLOT" },
+      data: {
+        examCenter: SYSTEM_EXAM_CENTER,
+        preferredLocation: SYSTEM_EXAM_LOCATION,
+        examDate: assignment.examDate ? new Date(assignment.examDate) : null,
+        examTime: assignment.examTime || "",
+        assignedScheduleId: assignment.assignedScheduleId || null,
+        status: "PENDING",
+        lastError: null
+      }
+    });
+
+    if (claimed.count === 0) {
+      if (scheduleId) {
+        await tx.schedule.update({
+          where: { scheduleId },
+          data: { remainingCapacity: { increment: 1 } }
+        });
+      }
+      return null;
+    }
+
+    if (examScheduleId && isBookableScheduleId(examScheduleId)) {
+      try {
+        await tx.applicant.update({
+          where: { id },
+          data: { matchedExamScheduleId: examScheduleId }
+        });
+      } catch {
+        await tx.$executeRawUnsafe(`
+          UPDATE "Applicant"
+          SET "matchedExamScheduleId" = '${examScheduleId.replaceAll("'", "''")}',
+              "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = ${id}
+        `);
+      }
+    }
+
+    return tx.applicant.findUnique({ where: { id } });
+  });
+}
+
 export async function resetApplicantForRetry(id) {
   await ensureDatabaseSchema();
   const applicantId = Number(id);
@@ -1526,7 +1587,8 @@ export async function listWaitingApplicants() {
   assertAutomationModels();
   return prisma.applicant.findMany({
     where: { status: "WAITING_FOR_SLOT" },
-    orderBy: { createdAt: "asc" }
+    orderBy: { createdAt: "asc" },
+    include: { batch: true }
   });
 }
 

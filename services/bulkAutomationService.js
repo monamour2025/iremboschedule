@@ -208,7 +208,7 @@ export async function automateBatch(batchId) {
 
 export async function startAutomationBatch(batchId) {
   await ensureDatabaseSchema();
-  const { processPendingAutomations } = await import("./applicantMatchingService.js");
+  const { processPendingAutomations, processAllWaitingApplicants } = await import("./applicantMatchingService.js");
 
   const batch = await prisma.automationBatch.update({
     where: { id: Number(batchId) },
@@ -241,14 +241,6 @@ export async function startAutomationBatch(batchId) {
         await enqueueApplicantAutomation(applicant.id, { force: true });
         continue;
       }
-      if (refreshed?.status === "WAITING_FOR_SLOT") {
-        const { tryMatchApplicantImmediately } = await import("./applicantMatchingService.js");
-        await tryMatchApplicantImmediately(applicant.id);
-        const matched = await prisma.applicant.findUnique({ where: { id: applicant.id } });
-        if (matched?.status === "PENDING") {
-          await enqueueApplicantAutomation(applicant.id, { force: true });
-        }
-      }
     } catch (error) {
       logger.error("Batch applicant automation setup failed", {
         batchId: batch.id,
@@ -262,6 +254,7 @@ export async function startAutomationBatch(batchId) {
     }
   }
 
+  await processAllWaitingApplicants();
   await processPendingAutomations();
   await refreshRunningBatchStatuses();
   return batch;
@@ -356,7 +349,7 @@ export async function cancelAutomationBatch(batchId) {
 
 export async function processActiveBatchApplicants() {
   await ensureDatabaseSchema();
-  const { tryMatchApplicantImmediately, processPendingAutomations } = await import(
+  const { processAllWaitingApplicants, processPendingAutomations } = await import(
     "./applicantMatchingService.js"
   );
 
@@ -373,6 +366,8 @@ export async function processActiveBatchApplicants() {
     return 0;
   }
 
+  await processAllWaitingApplicants();
+
   let touched = 0;
   for (const batch of runningBatches) {
     for (const applicant of batch.applicants) {
@@ -380,16 +375,12 @@ export async function processActiveBatchApplicants() {
         continue;
       }
 
-      if (applicant.status === "WAITING_FOR_SLOT") {
-        await tryMatchApplicantImmediately(applicant.id);
-      }
-
       const refreshed = await prisma.applicant.findUnique({ where: { id: applicant.id } });
       if (!refreshed || TERMINAL_STATUSES.has(refreshed.status)) {
         continue;
       }
 
-      if (RETRYABLE_STATUSES.has(refreshed.status)) {
+      if (RETRYABLE_STATUSES.has(refreshed.status) && refreshed.status !== "WAITING_FOR_SLOT") {
         await enqueueApplicantAutomation(applicant.id, { force: true });
         touched += 1;
       }
