@@ -551,7 +551,7 @@ export default function BulkAutomationManager() {
         <h2 className="text-base font-semibold text-teal-950">Add applicants to list</h2>
         <p className="mt-1 text-sm text-teal-800">
           {listMode === "estimate"
-            ? "Estimate list: this system only uses BUSANZA AUTOMATED CENTER (Kicukiro). Add people by category and desired time. Save — matching slots create codes automatically."
+            ? "Estimate list: this system only uses BUSANZA AUTOMATED CENTER (Kicukiro). Add people by category and desired time. Matching uses the exact time first, then the nearest open Busanza sitting."
             : "Pick slot now: choose site, date, and time from open slots, save, then click Automate Codes."}
         </p>
 

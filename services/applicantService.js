@@ -13,7 +13,7 @@ import { resolveEntityIdForInput, repairStuckProfileApplicants, cacheEntityId, r
 import { normalizeRwandaPhone, resolveIremboNotificationContact } from "../lib/iremboContact.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch, isSystemExamCenter, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
-import { formatScheduleTimeLocal, normalizeExamTimeInput, resolveScheduleTime, isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
+import { formatScheduleTimeLocal, normalizeExamTimeInput, isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
 import {
   applicantOwnsCategory,
   parseVehicleClasses
@@ -66,14 +66,6 @@ export function scheduleMatchesApplicant(applicant, schedule) {
 
   if (!isSystemExamCenter(schedule.center)) {
     return false;
-  }
-
-  const preferredTime = normalizeExamTimeInput(applicant.preferredExamTime);
-  if (preferredTime) {
-    const scheduleTime = resolveScheduleTime(schedule);
-    if (scheduleTime !== preferredTime) {
-      return false;
-    }
   }
 
   const start = schedule.startDateTime ? new Date(schedule.startDateTime) : null;
@@ -194,7 +186,7 @@ function statusHint(status, lastError, applicationNumber, applicant = {}) {
         return "Irembo already has an exam for this person. Still watching your estimate site/time; dial *909# if a code already exists.";
       }
       if (applicant.batch?.status === "RUNNING" && !applicant.assignedScheduleId) {
-        return "Watching Irembo for your exact estimate site, category, and time. A code is created only when that slot is booked.";
+        return "Watching Irembo for Busanza, your category, and the nearest open time to your desired time. A code is created when that slot is booked.";
       }
       if (applicant.batch?.status === "SCHEDULED" && applicant.batch?.scheduledAt) {
         return `Bulk automation scheduled for ${new Date(applicant.batch.scheduledAt).toLocaleString()}.`;

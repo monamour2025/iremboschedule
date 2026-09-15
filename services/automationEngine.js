@@ -194,11 +194,11 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     }
 
     const preferredLocation = SYSTEM_EXAM_LOCATION;
-    const preferredTime = String(assignedSchedule.examTime || applicantRecord.preferredExamTime || "").trim();
+    const assignedTime = String(assignedSchedule.examTime || candidate.examTime || "").trim();
     if (
-      preferredTime &&
+      assignedTime &&
       candidate.examTime &&
-      String(candidate.examTime).trim() !== preferredTime
+      String(candidate.examTime).trim() !== assignedTime
     ) {
       return null;
     }

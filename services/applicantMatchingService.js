@@ -9,7 +9,7 @@ import {
 } from "../lib/applicantAutomationLock.js";
 import { getFailedScheduleIds, isScheduleBlocked } from "../lib/failedSchedules.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
-import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
+import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION, systemExamCenterDbWhere } from "../lib/examCenters.js";
 import { findExamSchedule } from "../providers/iremboApplicationProvider.js";
 import { isApplicantHeldForBatch } from "../lib/bulkAutomationHold.js";
 import {
@@ -37,8 +37,7 @@ export async function resolveBookableAssignment(schedule, options = {}) {
 
   const examCenter = SYSTEM_EXAM_CENTER;
   const examDate = start;
-  const preferredTime = String(options.preferredExamTime || "").trim();
-  const examTime = preferredTime || formatExamTime(start);
+  const examTime = formatExamTime(start);
   const location = SYSTEM_EXAM_LOCATION;
   const monitorGuid = extractRawScheduleId(schedule.scheduleId);
 
@@ -246,11 +245,15 @@ export async function tryMatchApplicantImmediately(applicantId) {
     return [];
   }
 
+  const wantedCategory = String(applicant.requestedLicenseCategory || applicant.licenseCategory || "")
+    .trim()
+    .toUpperCase();
   const schedules = await prisma.schedule.findMany({
     where: {
       remainingCapacity: { gt: 0 },
-      category: applicant.licenseCategory,
-      startDateTime: { gt: new Date() }
+      category: wantedCategory,
+      startDateTime: { gt: new Date() },
+      ...systemExamCenterDbWhere()
     },
     orderBy: [{ startDateTime: "asc" }]
   });
@@ -275,26 +278,12 @@ export async function tryMatchApplicantImmediately(applicantId) {
   return [];
 }
 
-export async function processDetectedSchedulesForApplicants(changes, latestSchedules = []) {
-  const latestById = new Map(latestSchedules.map((schedule) => [schedule.scheduleId, schedule]));
-  const assignments = [];
-
-  for (const change of changes) {
-    if (!["NEW_SCHEDULE", "CAPACITY_INCREASE"].includes(change.type)) {
-      continue;
-    }
-
-    const schedule = latestById.get(change.scheduleId);
-    if (!schedule) {
-      continue;
-    }
-
-    assignments.push(...(await matchApplicantsToSchedule(schedule)));
+export async function processDetectedSchedulesForApplicants(changes) {
+  const relevant = (changes || []).some((change) =>
+    ["NEW_SCHEDULE", "CAPACITY_INCREASE"].includes(change.type)
+  );
+  if (!relevant) {
+    return [];
   }
-
-  if (assignments.length > 0) {
-    logger.info("Auto-assigned applicants from detected schedules", { count: assignments.length });
-  }
-
-  return assignments;
+  return processAllWaitingApplicants();
 }

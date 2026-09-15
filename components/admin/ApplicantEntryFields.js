@@ -525,7 +525,7 @@ export function ApplicantEntryFields({
           : "Enter national ID, then fetch licence details.";
 
   const estimateHint = slotOptional
-    ? `This system only books ${SYSTEM_EXAM_CENTER} in ${SYSTEM_EXAM_LOCATION}. Select a listed time or type one — the typed time is the desired time.`
+    ? `This system only books ${SYSTEM_EXAM_CENTER} in ${SYSTEM_EXAM_LOCATION}. Type a desired time — the exact sitting is used first, then the nearest open Busanza time (including 10:00 if that is what is open).`
     : "";
 
   const slotModeHint =
