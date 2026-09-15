@@ -1,4 +1,5 @@
 import { dispatchToChannels, getDefaultServerChannels } from "../lib/notificationChannels.js";
+import { getOfficeNotificationEmail } from "../lib/notificationInbox.js";
 import { getNotificationTargets } from "../services/detectionRuleService.js";
 import { logger } from "../lib/logger.js";
 import { prisma } from "../lib/db.js";
@@ -58,13 +59,14 @@ export async function sendApplicationCreatedNotification({
 
   try {
     const targets = await getNotificationTargets().catch(() => ({
-      email: email || "",
+      email: getOfficeNotificationEmail(),
       phone: phone || "",
       webhookUrl: process.env.NOTIFICATION_WEBHOOK_URL || ""
     }));
+    const officeEmail = targets.email || getOfficeNotificationEmail();
 
     const channels = getDefaultServerChannels({
-      email: email || targets.email,
+      email: officeEmail,
       phone: phone || targets.phone,
       webhookUrl: targets.webhookUrl
     });
@@ -90,7 +92,7 @@ export async function sendApplicationCreatedNotification({
         category
       },
       targets: {
-        email: email || targets.email,
+        email: officeEmail,
         phone: phone || targets.phone,
         webhookUrl: targets.webhookUrl
       }

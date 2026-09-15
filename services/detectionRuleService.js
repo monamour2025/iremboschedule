@@ -15,6 +15,7 @@ import {
   isValidTimeWindow
 } from "../lib/alertWindow.js";
 import { renderDetectionMessage } from "../lib/messageTemplate.js";
+import { getOfficeNotificationEmail, OFFICE_NOTIFICATION_EMAIL } from "../lib/notificationInbox.js";
 
 const SERVER_CHANNELS = ["email", "webhook", "phone"];
 const DEFAULT_CATEGORIES = ["A", "A1", "B", "B1", "C", "D", "D1", "E", "F"];
@@ -60,7 +61,11 @@ function normalizeRule(rule) {
 }
 
 function normalizeSettings(row) {
-  const alertEmail = String(row?.alertEmail || "").trim();
+  const storedEmail = String(row?.alertEmail || "").trim();
+  const alertEmail =
+    storedEmail && storedEmail.toLowerCase() !== "niyomuhozajeandedieu80@gmail.com"
+      ? storedEmail
+      : getOfficeNotificationEmail();
   const alertPhone = String(row?.alertPhone || "").trim();
   const alertWebhookUrl = String(row?.alertWebhookUrl || "").trim();
 
@@ -71,7 +76,7 @@ function normalizeSettings(row) {
     alertWebhookUrl,
     timezone: getTimezone(),
     targets: {
-      email: alertEmail || process.env.ALERT_EMAIL || "",
+      email: alertEmail || getOfficeNotificationEmail() || OFFICE_NOTIFICATION_EMAIL,
       phone: alertPhone || process.env.ALERT_PHONE || "",
       webhookUrl: alertWebhookUrl || process.env.NOTIFICATION_WEBHOOK_URL || ""
     }
@@ -80,7 +85,16 @@ function normalizeSettings(row) {
 
 export async function getMonitorSettings() {
   const row = await readMonitorSettingsRow();
-  return normalizeSettings(row);
+  const settings = normalizeSettings(row);
+  if (row && String(row.alertEmail || "").trim().toLowerCase() !== settings.alertEmail.toLowerCase()) {
+    await writeMonitorSettingsRow({
+      autoNotifyAll: settings.autoNotifyAll,
+      alertEmail: settings.alertEmail,
+      alertPhone: settings.alertPhone,
+      alertWebhookUrl: settings.alertWebhookUrl
+    });
+  }
+  return settings;
 }
 
 export async function getNotificationTargets() {

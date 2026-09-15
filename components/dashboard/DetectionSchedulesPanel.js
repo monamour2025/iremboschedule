@@ -145,7 +145,7 @@ export default function DetectionSchedulesPanel({
       <form onSubmit={handleContactsSubmit} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h3 className="text-base font-semibold text-slate-950">Alert contacts</h3>
         <p className="mt-1 text-sm text-slate-600">
-          Set email, phone, and webhook URL for detection alerts. Saved here in the dashboard.
+          Set email, phone, and webhook URL for detection alerts. Office notifications go to ishamiprohub@gmail.com.
         </p>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <label className="text-sm font-medium text-slate-800">
@@ -154,7 +154,7 @@ export default function DetectionSchedulesPanel({
               type="email"
               value={contacts.alertEmail}
               onChange={(event) => setContacts({ ...contacts, alertEmail: event.target.value })}
-              placeholder="you@example.com"
+              placeholder="ishamiprohub@gmail.com"
               className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
             />
           </label>
