@@ -128,42 +128,66 @@ export async function resolveBookableAssignment(schedule, options = {}) {
     examTime
   });
 
-  const live = await findExamSchedule({
-    licenseCategory: category,
-    examCenter,
-    examDate,
-    examTime,
-    location
-  });
-  const liveMatches =
-    examCentersMatch(live.examCenter, examCenter) &&
-    (!location || locationsMatch(live.locationName, location)) &&
-    isBookableScheduleId(live.examScheduleId);
-  if (!liveMatches) {
-    throw new Error("Could not resolve a live Irembo slot for this requested category and time.");
-  }
-  if (!(Number(live.remainingCapacity) > 0)) {
-    throw new Error(
-      `No live Irembo seats for ${schedule.category} at ${examTime}. Waiting for the next matching slot.`
-    );
-  }
+  try {
+    const live = await findExamSchedule({
+      licenseCategory: category,
+      examCenter,
+      examDate,
+      examTime,
+      location
+    });
+    const liveMatches =
+      examCentersMatch(live.examCenter, examCenter) &&
+      (!location || locationsMatch(live.locationName, location)) &&
+      isBookableScheduleId(live.examScheduleId);
+    if (!liveMatches) {
+      throw new Error("Could not resolve a live Irembo slot for this requested category and time.");
+    }
+    if (Number.isFinite(Number(live.remainingCapacity)) && Number(live.remainingCapacity) <= 0) {
+      throw new Error(
+        `No live Irembo seats for ${schedule.category} at ${examTime}. Waiting for the next matching slot.`
+      );
+    }
 
-  const amount = Number(live.amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error(
-      `Live Irembo ${schedule.category} slot at ${examTime} has no category price. Refusing to book with a guessed amount.`
-    );
-  }
+    const amount = Number(live.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error(
+        `Live Irembo ${schedule.category} slot at ${examTime} has no category price. Refusing to book with a guessed amount.`
+      );
+    }
 
-  return {
-    examScheduleId: live.examScheduleId,
-    examCenter,
-    examDate,
-    examTime: live.examTime || examTime,
-    locationName: location,
-    assignedScheduleId: schedule.scheduleId,
-    amount
-  };
+    return {
+      examScheduleId: live.examScheduleId,
+      examCenter,
+      examDate,
+      examTime: live.examTime || examTime,
+      locationName: location,
+      assignedScheduleId: schedule.scheduleId,
+      amount
+    };
+  } catch (error) {
+    const detectedGuid = extractRawScheduleId(schedule.examScheduleId || schedule.scheduleId);
+    const detectedOpen = Number(schedule.remainingCapacity || 0) > 0;
+    const detectedAmount = Number(schedule.amount);
+    if (isBookableScheduleId(detectedGuid) && detectedOpen && Number.isFinite(detectedAmount) && detectedAmount > 0) {
+      logger.warn("Using detected category slot after live lookup failed", {
+        scheduleId: schedule.scheduleId,
+        category,
+        examScheduleId: detectedGuid,
+        message: error.message
+      });
+      return {
+        examScheduleId: detectedGuid,
+        examCenter,
+        examDate,
+        examTime,
+        locationName: location,
+        assignedScheduleId: schedule.scheduleId,
+        amount: detectedAmount
+      };
+    }
+    throw error;
+  }
 }
 
 export async function assignScheduleFromMonitor(applicantId, scheduleId) {
@@ -310,11 +334,12 @@ export async function processAllWaitingApplicants(options = {}) {
     }
     const failedScheduleIds = await getFailedScheduleIds(applicant.id);
     const liveSlots = liveByCategory.get(category) || [];
-    const sourceSlots =
-      liveSlots.length > 0
-        ? liveSlots
-        : openSchedules.filter((schedule) => scheduleMatchesApplicant(applicant, schedule));
-    const candidates = sourceSlots.filter((schedule) => {
+    const detectedSlots = openSchedules.filter((schedule) => scheduleMatchesApplicant(applicant, schedule));
+    const byId = new Map();
+    for (const schedule of [...liveSlots, ...detectedSlots]) {
+      byId.set(schedule.scheduleId, schedule);
+    }
+    const candidates = [...byId.values()].filter((schedule) => {
       if ((seatsLeft.get(schedule.scheduleId) || 0) <= 0) {
         return false;
       }

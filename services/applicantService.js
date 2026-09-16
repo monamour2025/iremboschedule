@@ -194,7 +194,7 @@ function statusHint(status, lastError, applicationNumber, applicant = {}) {
         return "Irembo already has an exam for this person. Still watching your estimate site/time; dial *909# if a code already exists.";
       }
       if (applicant.batch?.status === "RUNNING" && !applicant.assignedScheduleId) {
-        return `Estimate list: watching Irembo for Busanza Category ${waitingCategory} near ${waitingTime}. Pick Slot Now is separate — this person is only booked when Category ${waitingCategory} has an open seat.`;
+        return `Estimate list: Category ${waitingCategory} is not open in the system yet. Waiting until Busanza Category ${waitingCategory} is detected, then a code is created automatically.`;
       }
       if (applicant.batch?.status === "SCHEDULED" && applicant.batch?.scheduledAt) {
         return `Bulk automation scheduled for ${new Date(applicant.batch.scheduledAt).toLocaleString()}.`;
@@ -208,7 +208,7 @@ function statusHint(status, lastError, applicationNumber, applicant = {}) {
           ? "Previous slot rejected. Searching for another open slot now..."
           : lastError
             ? `Finding another open Category ${waitingCategory} slot automatically...`
-            : `Estimate list: searching detected Category ${waitingCategory} seats (checks every 10 seconds).`;
+            : `Estimate list: Category ${waitingCategory} is not detected yet. Waiting — when it appears, the system assigns the nearest seat to ${waitingTime} and creates the code.`;
     }
     case "PENDING":
       if (lastError?.includes("busy") || lastError?.includes("Auto-retry")) {
