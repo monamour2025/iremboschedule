@@ -101,50 +101,45 @@ export async function resolveBookableAssignment(schedule, options = {}) {
   const examDate = start;
   const examTime = formatExamTime(start);
   const location = SYSTEM_EXAM_LOCATION;
-  const monitorGuid = extractRawScheduleId(schedule.scheduleId);
 
   logger.info("Resolving live bookable scheduleID from Irembo", {
     scheduleId: schedule.scheduleId,
     category: schedule.category,
     center: examCenter,
-    location
+    location,
+    examTime
   });
 
-  let examScheduleId = isBookableScheduleId(monitorGuid) ? monitorGuid : "";
-  if (!examScheduleId) {
-    try {
-      const live = await findExamSchedule({
-        licenseCategory: schedule.category,
-        examCenter,
-        examDate,
-        examTime,
-        location
-      });
-      const liveMatches =
-        examCentersMatch(live.examCenter, examCenter) &&
-        (!location || locationsMatch(live.locationName, location));
-      if (liveMatches && isBookableScheduleId(live.examScheduleId)) {
-        examScheduleId = live.examScheduleId;
-      }
-    } catch (error) {
-      logger.warn("Live schedule lookup failed; using monitor schedule id if bookable", {
-        scheduleId: schedule.scheduleId,
-        message: error.message
-      });
-    }
-  }
-
-  if (!isBookableScheduleId(examScheduleId)) {
-    throw new Error("Could not resolve a bookable Irembo scheduleID for this detected slot.");
-  }
-
-  return {
-    examScheduleId,
+  const live = await findExamSchedule({
+    licenseCategory: schedule.category,
     examCenter,
     examDate,
     examTime,
+    location
+  });
+  const liveMatches =
+    examCentersMatch(live.examCenter, examCenter) &&
+    (!location || locationsMatch(live.locationName, location)) &&
+    isBookableScheduleId(live.examScheduleId);
+  if (!liveMatches) {
+    throw new Error("Could not resolve a live Irembo slot for this requested category and time.");
+  }
+
+  const amount = Number(live.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(
+      `Live Irembo ${schedule.category} slot at ${examTime} has no category price. Refusing to book with a guessed amount.`
+    );
+  }
+
+  return {
+    examScheduleId: live.examScheduleId,
+    examCenter,
+    examDate,
+    examTime: live.examTime || examTime,
     locationName: location,
-    assignedScheduleId: schedule.scheduleId
+    assignedScheduleId: schedule.scheduleId,
+    amount
   };
 }
 

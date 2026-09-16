@@ -58,7 +58,10 @@ export function mapApplicantToReportRow(row, now = Date.now()) {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     isNew: isNewApplicant(row.createdAt, now),
-    hasSuccess: SUCCESS_APPLICATION_STATUSES.has(row.status) && Boolean(row.applicationNumber)
+    hasSuccess:
+      SUCCESS_APPLICATION_STATUSES.has(row.status) &&
+      Boolean(row.applicationNumber) &&
+      String(application.status || "").toUpperCase() !== "WRONG_CATEGORY_RETURNED"
   };
 }
 

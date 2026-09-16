@@ -576,6 +576,28 @@ function policeHeaders(category, location) {
   };
 }
 
+function liveIremboSlotAmount(row) {
+  const motor = Number(row?.motorVehicleFee ?? row?.vehicleFee ?? row?.MOTOR_VEHICLE_FEE);
+  const exam = Number(row?.examFee ?? row?.EXAM_FEE);
+  const combined = Number.isFinite(motor) && motor > 0 && Number.isFinite(exam) && exam > 0 ? motor + exam : null;
+  const candidates = [
+    row?.totalAmount,
+    row?.totalFee,
+    row?.amount,
+    row?.price,
+    combined,
+    row?.examFee,
+    row?.fee
+  ];
+  for (const value of candidates) {
+    const amount = Number(value);
+    if (Number.isFinite(amount) && amount > 0) {
+      return amount;
+    }
+  }
+  return null;
+}
+
 async function listLiveScheduleCandidates({
   licenseCategory,
   location,
@@ -644,6 +666,14 @@ async function listLiveScheduleCandidates({
         }
 
         const resolvedTime = examTime || candidateTime;
+        const amount = liveIremboSlotAmount(row);
+        if (!amount) {
+          logger.warn("Skipping live Irembo row with no category price", {
+            requestedCategory: licenseCategory,
+            examScheduleId: bookableId
+          });
+          continue;
+        }
         candidates.push({
           examScheduleId: bookableId,
           examCenter: SYSTEM_EXAM_CENTER,
@@ -652,7 +682,7 @@ async function listLiveScheduleCandidates({
           schedule: row,
           testCenter,
           locationName: SYSTEM_EXAM_LOCATION,
-          amount: Number(row.price ?? row.examFee ?? 0) || null
+          amount
         });
       }
     }
@@ -789,9 +819,15 @@ export async function createDrivingLicenseApplication(input) {
     examScheduleDate: input.examScheduleDate,
     notificationPhone,
     notificationEmail,
-    approvingOfficeLocationId,
-    amount: Number(input.amount ?? process.env.IREMBO_APPLICATION_AMOUNT ?? 55000)
+    approvingOfficeLocationId
   };
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(
+      "Refusing to create an Irembo application without the live slot price for this category."
+    );
+  }
+  body.amount = amount;
 
   const payload = await withRetry(
     () =>

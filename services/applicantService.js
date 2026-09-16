@@ -383,7 +383,14 @@ async function enrichApplicantProvisionalFields(applicant) {
 }
 
 function resolveApplicationNumber(applicant) {
-  const stored = applicant.applications?.[0]?.applicationNumber;
+  if (isWrongCategoryHold(applicant) || applicant.status === "WAITING_FOR_SLOT") {
+    return null;
+  }
+  const storedApp = applicant.applications?.[0];
+  if (String(storedApp?.status || "").toUpperCase() === "WRONG_CATEGORY_RETURNED") {
+    return null;
+  }
+  const stored = storedApp?.applicationNumber;
   if (stored) {
     return stored;
   }

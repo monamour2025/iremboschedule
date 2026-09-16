@@ -10,6 +10,7 @@ import { liveIremboRowMatchesCategory } from "../lib/scheduleTime.js";
 import {
   buildExamScheduleDate,
   createDrivingLicenseApplication,
+  fetchPaymentTransactionByApplicationNumber,
   findExamSchedule,
   getCitizenProfile,
   listBookableSchedulesForApplicant,
@@ -220,6 +221,13 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
       return null;
     }
 
+    const amount = Number(
+      candidate.amount ?? candidate.schedule?.price ?? candidate.schedule?.examFee ?? assignedSchedule.amount
+    );
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return null;
+    }
+
     triedIds.add(candidate.examScheduleId);
     try {
       const temporaryBookingId = await reserveTemporarySlot(candidate.examScheduleId, bookingContext);
@@ -230,7 +238,7 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
         examDate: candidate.examDate || assignedSchedule.examDate,
         examTime: candidate.examTime || assignedSchedule.examTime,
         locationName: candidate.locationName || candidate.schedule?.locationName || applicantRecord.preferredLocation,
-        amount: candidate.amount ?? candidate.schedule?.price ?? candidate.schedule?.examFee ?? null
+        amount
       };
     } catch (error) {
       lastError = error;
@@ -448,6 +456,33 @@ export async function runApplicantAutomation(applicantId) {
         serviceCode: isExistingApplicant ? SUPPLEMENTARY_SERVICE_CODE : undefined
       });
 
+      if (created.alreadyExists) {
+        await clearApplicantAssignment(
+          applicantId,
+          `Irembo already has ${created.applicationNumber}. Returned to estimate list — cancel or wait for expiry, then Retry for Category ${resolveAutomationLicenseCategory(applicantRecord)}.`
+        );
+        return { ok: false, alreadyExists: true, applicantId };
+      }
+
+      try {
+        const livePayment = await fetchPaymentTransactionByApplicationNumber(created.applicationNumber);
+        if (!livePayment?.applicationNumber) {
+          throw new Error("Irembo did not return this application number.");
+        }
+        if (booking.amount && livePayment.amount && Number(livePayment.amount) !== Number(booking.amount)) {
+          throw new Error(
+            `Irembo billed ${livePayment.amount} RWF, not the live ${booking.amount} RWF price for this category slot.`
+          );
+        }
+        created.amount = livePayment.amount || created.amount;
+      } catch (verifyError) {
+        await clearApplicantAssignment(
+          applicantId,
+          `Irembo did not confirm a real payable ${resolveAutomationLicenseCategory(applicantRecord)} slot for this code. Returned to estimate list.`
+        );
+        throw verifyError;
+      }
+
       if (!application) {
         application = await createApplicationRecord(applicantId, {
           iremboEntityId: entityId,
@@ -544,30 +579,11 @@ export async function runApplicantAutomation(applicantId) {
 
       if (isIremboAlreadyRegisteredMessage(error.message)) {
         const existingNumber = extractIremboApplicationNumber(error.message);
-        if (existingNumber) {
-          if (!application) {
-            application = await createApplicationRecord(applicantId, {
-              applicationNumber: existingNumber,
-              status: "PAYMENT_PENDING",
-              responseData: { error: error.message, alreadyExists: true }
-            });
-          } else {
-            await updateApplicationRecord(application.id, {
-              applicationNumber: existingNumber,
-              status: "PAYMENT_PENDING",
-              responseData: { error: error.message, alreadyExists: true }
-            });
-          }
-          await setApplicantStatus(
-            applicantId,
-            "APPLICATION_CREATED",
-            `Application ${existingNumber} already exists on Irembo. Dial *909# if SMS did not arrive.`
-          );
-          return { ok: true, applicantId, applicationNumber: existingNumber, alreadyExists: true };
-        }
         await clearApplicantAssignment(
           applicantId,
-          "Irembo said this person already has an exam. Still watching your estimate site/time. Dial *909# if a code already exists."
+          existingNumber
+            ? `Irembo already has ${existingNumber}. Returned to estimate list — cancel or wait for expiry, then Retry.`
+            : "Irembo said this person already has an exam. Returned to estimate list."
         );
         clearAutomationCooldown(applicantId);
         await logAutomationEvent({
