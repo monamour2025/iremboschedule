@@ -28,7 +28,7 @@ export function formatAssignedSlotLabel(applicant) {
     if (batchPending) {
       return `Estimate · Category ${category} · ${district}${site}${time} · save to start monitoring`;
     }
-    return `Matching Category ${category} · ${district}${site}${time}`;
+    return `Waiting for Category ${category} · ${district}${site}${time}`;
   }
 
   if (batchPending) {

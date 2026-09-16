@@ -13,7 +13,7 @@ import { resolveEntityIdForInput, repairStuckProfileApplicants, cacheEntityId, r
 import { normalizeRwandaPhone, resolveIremboNotificationContact } from "../lib/iremboContact.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch, isSystemExamCenter, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
-import { formatScheduleTimeLocal, normalizeExamTimeInput, isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
+import { extractLicenseCategoryToken, formatScheduleTimeLocal, normalizeExamTimeInput, isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
 import {
   applicantOwnsCategory,
   parseVehicleClasses
@@ -53,13 +53,15 @@ function lockApplicantExamSite(input = {}) {
   };
 }
 
+export function applicantRequestedCategory(applicant) {
+  return extractLicenseCategoryToken(
+    applicant?.requestedLicenseCategory || applicant?.licenseCategory
+  );
+}
+
 export function scheduleMatchesApplicant(applicant, schedule) {
-  const wantedCategory = String(
-    applicant.requestedLicenseCategory || applicant.licenseCategory || ""
-  )
-    .trim()
-    .toUpperCase();
-  const scheduleCategory = String(schedule.category || "").trim().toUpperCase();
+  const wantedCategory = applicantRequestedCategory(applicant);
+  const scheduleCategory = extractLicenseCategoryToken(schedule?.category || schedule?.scheduleId);
   if (!wantedCategory || wantedCategory !== scheduleCategory) {
     return false;
   }
@@ -181,12 +183,14 @@ function statusHint(status, lastError, applicationNumber, applicant = {}) {
         return "National ID saved — Irembo profile not linked yet. Open bulk form to finish linking, then Retry.";
       }
       return "Enter national ID to link Irembo profile, then click Automate Codes.";
-    case "WAITING_FOR_SLOT":
+    case "WAITING_FOR_SLOT": {
+      const waitingCategory = applicantRequestedCategory(applicant) || "your category";
+      const waitingTime = applicant.preferredExamTime || "your desired time";
       if (lastError?.includes("70011") || lastError?.includes("*909#") || lastError?.includes("Mwamaze kwiyandikisha")) {
         return "Irembo already has an exam for this person. Still watching your estimate site/time; dial *909# if a code already exists.";
       }
       if (applicant.batch?.status === "RUNNING" && !applicant.assignedScheduleId) {
-        return "Watching Irembo for Busanza, your category, and the nearest open time to your desired time. A code is created when that slot is booked.";
+        return `Estimate list: watching Irembo for Busanza Category ${waitingCategory} near ${waitingTime}. Pick Slot Now is separate — this person is only booked when Category ${waitingCategory} has an open seat.`;
       }
       if (applicant.batch?.status === "SCHEDULED" && applicant.batch?.scheduledAt) {
         return `Bulk automation scheduled for ${new Date(applicant.batch.scheduledAt).toLocaleString()}.`;
@@ -199,8 +203,9 @@ function statusHint(status, lastError, applicationNumber, applicant = {}) {
         : lastError?.includes("next open slot")
           ? "Previous slot rejected. Searching for another open slot now..."
           : lastError
-            ? "Finding another open slot automatically..."
-            : "Actively searching detected open slots (checks every 10 seconds).";
+            ? `Finding another open Category ${waitingCategory} slot automatically...`
+            : `Estimate list: searching detected Category ${waitingCategory} seats (checks every 10 seconds).`;
+    }
     case "PENDING":
       if (lastError?.includes("busy") || lastError?.includes("Auto-retry")) {
         return lastError;
@@ -1067,8 +1072,15 @@ export async function createApplicantForBulk(input, batchId) {
     throw error;
   }
 
-  const licenseCategory = String(input.licenseCategory || "A").trim().toUpperCase();
   const label = input.fullName?.trim() || "Applicant";
+  const licenseCategory = String(input.licenseCategory || input.requestedLicenseCategory || "")
+    .trim()
+    .toUpperCase();
+  if (!licenseCategory) {
+    const error = new Error(`${label}: Select the licence category.`);
+    error.statusCode = 400;
+    throw error;
+  }
   const entityId = requireEntityIdInput(input, label);
   const contact = assertApplicantNotificationContact(input, label);
   const profile = await resolveEntityIdForInput({
@@ -1105,6 +1117,7 @@ export async function createApplicantForBulk(input, batchId) {
       phone: contact.notificationPhone,
       email: contact.notificationEmail,
       licenseCategory,
+      requestedLicenseCategory: licenseCategory,
       preferredLocation: preferredLocationInput,
       examType: input.examType?.trim() || "PRACTICAL",
       examCenter: preferredCenterInput,
@@ -1138,6 +1151,7 @@ export async function createApplicantForBulk(input, batchId) {
       phone: contact.notificationPhone,
       email: contact.notificationEmail,
       licenseCategory,
+      requestedLicenseCategory: licenseCategory,
       preferredLocation: resolved.preferredLocation,
       examType: input.examType?.trim() || "PRACTICAL",
       examCenter: resolved.examCenter,
@@ -1488,13 +1502,21 @@ export async function claimWaitingApplicantAssignment(applicantId, assignment) {
     : extractRawScheduleId(assignment.assignedScheduleId);
 
   return prisma.$transaction(async (tx) => {
+    let decrementedLocalSeat = false;
     if (scheduleId) {
-      const seat = await tx.schedule.updateMany({
-        where: { scheduleId, remainingCapacity: { gt: 0 } },
-        data: { remainingCapacity: { decrement: 1 } }
+      const existing = await tx.schedule.findUnique({
+        where: { scheduleId },
+        select: { scheduleId: true }
       });
-      if (seat.count === 0) {
-        return null;
+      if (existing) {
+        const seat = await tx.schedule.updateMany({
+          where: { scheduleId, remainingCapacity: { gt: 0 } },
+          data: { remainingCapacity: { decrement: 1 } }
+        });
+        if (seat.count === 0) {
+          return null;
+        }
+        decrementedLocalSeat = true;
       }
     }
 
@@ -1512,7 +1534,7 @@ export async function claimWaitingApplicantAssignment(applicantId, assignment) {
     });
 
     if (claimed.count === 0) {
-      if (scheduleId) {
+      if (decrementedLocalSeat) {
         await tx.schedule.update({
           where: { scheduleId },
           data: { remainingCapacity: { increment: 1 } }

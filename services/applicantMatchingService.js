@@ -10,10 +10,11 @@ import {
 import { getFailedScheduleIds, isScheduleBlocked } from "../lib/failedSchedules.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION, systemExamCenterDbWhere } from "../lib/examCenters.js";
-import { findExamSchedule } from "../providers/iremboApplicationProvider.js";
+import { findExamSchedule, listLiveOpenSlotsForCategory } from "../providers/iremboApplicationProvider.js";
 import { isApplicantHeldForBatch } from "../lib/bulkAutomationHold.js";
 import {
   assignScheduleToApplicant,
+  applicantRequestedCategory,
   claimWaitingApplicantAssignment,
   clearApplicantAssignment,
   getApplicantById,
@@ -21,7 +22,7 @@ import {
   listWaitingApplicants,
   scheduleMatchesApplicant
 } from "./applicantService.js";
-import { formatScheduleTimeLocal, sortSchedulesByPreferredTime, isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
+import { formatScheduleTimeLocal, sortSchedulesByPreferredTime, isOpenUpcomingSchedule, extractLicenseCategoryToken } from "../lib/scheduleTime.js";
 
 export { extractRawScheduleId } from "../lib/scheduleIds.js";
 
@@ -102,17 +103,34 @@ export async function resolveBookableAssignment(schedule, options = {}) {
   const examDate = start;
   const examTime = formatExamTime(start);
   const location = SYSTEM_EXAM_LOCATION;
+  const category = String(schedule.category || "").trim().toUpperCase();
+
+  if (
+    isBookableScheduleId(schedule.examScheduleId) &&
+    Number(schedule.remainingCapacity) > 0 &&
+    Number(schedule.amount) > 0
+  ) {
+    return {
+      examScheduleId: extractRawScheduleId(schedule.examScheduleId),
+      examCenter,
+      examDate,
+      examTime: formatExamTime(schedule.startDateTime) || examTime,
+      locationName: location,
+      assignedScheduleId: schedule.scheduleId,
+      amount: Number(schedule.amount)
+    };
+  }
 
   logger.info("Resolving live bookable scheduleID from Irembo", {
     scheduleId: schedule.scheduleId,
-    category: schedule.category,
+    category,
     center: examCenter,
     location,
     examTime
   });
 
   const live = await findExamSchedule({
-    licenseCategory: schedule.category,
+    licenseCategory: category,
     examCenter,
     examDate,
     examTime,
@@ -243,9 +261,7 @@ async function releaseInFlightApplicantsWithoutLiveSeats() {
 
   const liveCache = new Map();
   async function hasLiveSeats(applicant) {
-    const category = String(applicant.requestedLicenseCategory || applicant.licenseCategory || "")
-      .trim()
-      .toUpperCase();
+    const category = applicantRequestedCategory(applicant);
     const examTime = String(applicant.examTime || "").trim();
     const examDate = applicant.examDate ? new Date(applicant.examDate) : null;
     if (!category || !examTime || !examDate || Number.isNaN(examDate.getTime())) {
@@ -277,9 +293,7 @@ async function releaseInFlightApplicantsWithoutLiveSeats() {
     if (available) {
       continue;
     }
-    const category = String(applicant.requestedLicenseCategory || applicant.licenseCategory || "")
-      .trim()
-      .toUpperCase();
+    const category = applicantRequestedCategory(applicant);
     await clearApplicantAssignment(
       applicant.id,
       `No live Irembo seats for Category ${category || "this request"} yet. Waiting — Irembo has not opened that slot.`
@@ -322,29 +336,58 @@ export async function processAllWaitingApplicants(options = {}) {
     })
   ).filter((schedule) => isOpenUpcomingSchedule(schedule) && isSystemExamCenter(schedule.center));
 
-  if (openSchedules.length === 0) {
-    return [];
-  }
+  const waitingCategories = [
+    ...new Set(waiting.map((applicant) => applicantRequestedCategory(applicant)).filter(Boolean))
+  ];
+  const liveByCategory = new Map();
+  await mapWithPool(waitingCategories, MATCH_CONCURRENCY, async (category) => {
+    const liveSlots = await listLiveOpenSlotsForCategory(
+      category,
+      openSchedules.map((schedule) => schedule.startDateTime)
+    );
+    liveByCategory.set(category, liveSlots);
+  });
 
   const reserved = await loadReservedSeatCounts();
   const seatsLeft = new Map();
-  for (const schedule of openSchedules) {
+  function rememberSeats(schedule) {
+    if (seatsLeft.has(schedule.scheduleId)) {
+      return;
+    }
     const remaining = Number(schedule.remainingCapacity || 0);
     const held = reserved.get(schedule.scheduleId) || 0;
     seatsLeft.set(schedule.scheduleId, Math.max(0, remaining - held));
   }
+  for (const schedule of openSchedules) {
+    rememberSeats(schedule);
+  }
+  for (const liveSlots of liveByCategory.values()) {
+    for (const schedule of liveSlots) {
+      rememberSeats(schedule);
+    }
+  }
 
   const planned = [];
   for (const applicant of waiting) {
+    const category = applicantRequestedCategory(applicant);
+    if (!category) {
+      continue;
+    }
     const failedScheduleIds = await getFailedScheduleIds(applicant.id);
-    const candidates = openSchedules.filter((schedule) => {
+    const liveSlots = liveByCategory.get(category) || [];
+    const localSlots = openSchedules.filter((schedule) => scheduleMatchesApplicant(applicant, schedule));
+    const byId = new Map();
+    for (const schedule of [...liveSlots, ...localSlots]) {
+      byId.set(schedule.scheduleId, schedule);
+    }
+    const candidates = [...byId.values()].filter((schedule) => {
       if ((seatsLeft.get(schedule.scheduleId) || 0) <= 0) {
         return false;
       }
-      if (isScheduleBlocked(schedule.scheduleId, failedScheduleIds)) {
+      if (isScheduleBlocked(schedule.scheduleId, failedScheduleIds) || isScheduleBlocked(schedule.examScheduleId, failedScheduleIds)) {
         return false;
       }
-      return scheduleMatchesApplicant(applicant, schedule);
+      return scheduleMatchesApplicant(applicant, schedule) || extractLicenseCategoryToken(schedule.category) === category;
     });
     const nearest = sortSchedulesByPreferredTime(candidates, applicant.preferredExamTime)[0];
     if (!nearest) {

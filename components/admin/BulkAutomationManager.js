@@ -306,11 +306,13 @@ export default function BulkAutomationManager() {
       return;
     }
 
-    const missingRequestedCategory = rows.find(
-      (row) =>
-        row.applicationType === APPLICATION_TYPE_ADD_CATEGORY &&
-        !String(row.requestedLicenseCategory || "").trim()
-    );
+    const missingRequestedCategory = rows.find((row) => {
+      const category =
+        row.applicationType === APPLICATION_TYPE_ADD_CATEGORY
+          ? row.requestedLicenseCategory
+          : row.licenseCategory;
+      return !String(category || "").trim();
+    });
     if (missingRequestedCategory) {
       setError(`${missingRequestedCategory.fullName || "Each applicant"}: select the requested category.`);
       return;
@@ -551,8 +553,8 @@ export default function BulkAutomationManager() {
         <h2 className="text-base font-semibold text-teal-950">Add applicants to list</h2>
         <p className="mt-1 text-sm text-teal-800">
           {listMode === "estimate"
-            ? "Estimate list: this system only uses BUSANZA AUTOMATED CENTER (Kicukiro). Add people by category and desired time. Matching uses the exact time first, then the nearest open Busanza sitting."
-            : "Pick slot now: choose site, date, and time from open slots, save, then click Automate Codes."}
+            ? "Estimate list: save Category A/B/C people with a desired time. The system watches Irembo for THAT category only and books when that category has an open Busanza seat. Category A waiting does not block Category B."
+            : "Pick slot now: choose an open seat for that person's category, save, then Automate Codes. This books the seat you picked now — it does not wait on the estimate list."}
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">

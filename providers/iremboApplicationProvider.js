@@ -739,6 +739,56 @@ export async function findExamSchedule({
   };
 }
 
+export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = []) {
+  const category = String(licenseCategory || "")
+    .trim()
+    .toUpperCase();
+  if (!category) {
+    return [];
+  }
+
+  const kigaliToday = formatScheduleDateLocal(new Date());
+  const dates = [
+    ...new Set([
+      kigaliToday,
+      ...dateHints.map((value) => formatScheduleDateLocal(value)).filter(Boolean)
+    ])
+  ];
+
+  const byId = new Map();
+  for (const selectedDate of dates) {
+    const examDate = parseIremboLocalDateTime(selectedDate, "08:00");
+    if (!examDate) {
+      continue;
+    }
+    const candidates = await listLiveScheduleCandidates({
+      licenseCategory: category,
+      location: SYSTEM_EXAM_LOCATION,
+      examCenter: SYSTEM_EXAM_CENTER,
+      examDate,
+      examTime: ""
+    });
+    for (const candidate of candidates) {
+      if (!(Number(candidate.remainingCapacity) > 0) || !candidate.examScheduleId) {
+        continue;
+      }
+      byId.set(candidate.examScheduleId, {
+        scheduleId: `${category}:${candidate.examScheduleId}@${candidate.examTime}`,
+        category,
+        center: SYSTEM_EXAM_CENTER,
+        location: SYSTEM_EXAM_LOCATION,
+        startDateTime: candidate.examDate,
+        remainingCapacity: candidate.remainingCapacity,
+        examScheduleId: candidate.examScheduleId,
+        amount: candidate.amount,
+        liveRow: candidate.schedule
+      });
+    }
+  }
+
+  return [...byId.values()];
+}
+
 export async function listBookableSchedulesForApplicant(applicant, assignedSchedule) {
   const licenseCategory = String(
     applicant.requestedLicenseCategory || applicant.licenseCategory || ""

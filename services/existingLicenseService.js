@@ -245,10 +245,7 @@ export function isProvisionalLicenceValidationError(message) {
 }
 
 export function resolveAutomationLicenseCategory(applicant) {
-  if (isExistingLicenseApplicant(applicant)) {
-    return applicant.requestedLicenseCategory || applicant.licenseCategory;
-  }
-  return applicant.licenseCategory;
+  return applicant.requestedLicenseCategory || applicant.licenseCategory;
 }
 
 export function resolveAutomationLicenseNumber(applicant) {
