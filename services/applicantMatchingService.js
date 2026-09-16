@@ -16,6 +16,7 @@ import {
   assignScheduleToApplicant,
   claimWaitingApplicantAssignment,
   getApplicantById,
+  isWrongCategoryHold,
   listWaitingApplicants,
   scheduleMatchesApplicant
 } from "./applicantService.js";
@@ -230,6 +231,9 @@ export async function processAllWaitingApplicants(options = {}) {
 
   const waiting = (await listWaitingApplicants()).filter((applicant) => {
     if (onlyIds && !onlyIds.has(Number(applicant.id))) {
+      return false;
+    }
+    if (isWrongCategoryHold(applicant)) {
       return false;
     }
     return !isApplicantHeldByLoadedBatch(applicant);

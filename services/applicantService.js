@@ -1577,6 +1577,98 @@ export async function clearApplicantAssignment(id, lastError = null) {
   return prisma.applicant.findUnique({ where: { id: applicantId } });
 }
 
+const WRONG_CATEGORY_IREMBO_SCHEDULE_IDS = [
+  "f4c20cbe-a7d1-4b98-9d60-88f5615289ae",
+  "c5dc1851-5e63-4fec-88da-3212c5eba3b1",
+  "236f05d1-b1b6-46d7-9232-173ba68a794e"
+];
+
+const WRONG_CATEGORY_PHONES = [
+  "0793772307",
+  "0788728128",
+  "0785909206",
+  "0792439241",
+  "0780970628",
+  "0723638780",
+  "0785057485",
+  "0780791921"
+];
+
+const WRONG_CATEGORY_HOLD_MESSAGE =
+  "Returned to estimate list: previous Irembo code used the wrong licence category. Do not pay that code. Cancel it on Irembo if needed, then Retry so Category A can be booked.";
+
+export function isWrongCategoryHold(applicant) {
+  return String(applicant?.lastError || "").toLowerCase().includes("wrong licence category");
+}
+
+export async function returnWrongCategoryBookingsToEstimateList() {
+  await ensureDatabaseSchema();
+  assertAutomationModels();
+
+  const phones = WRONG_CATEGORY_PHONES.map((phone) => phone.replace(/\D/g, "")).filter(Boolean);
+  const applications = await prisma.application.findMany({
+    where: {
+      OR: [
+        { examScheduleId: { in: WRONG_CATEGORY_IREMBO_SCHEDULE_IDS } },
+        {
+          applicant: {
+            phone: { in: WRONG_CATEGORY_PHONES }
+          }
+        }
+      ]
+    },
+    select: { id: true, applicantId: true, examScheduleId: true, applicationNumber: true }
+  });
+
+  const byPhone = phones.length
+    ? await prisma.applicant.findMany({
+        where: {
+          OR: WRONG_CATEGORY_PHONES.map((phone) => ({ phone: { contains: phone } }))
+        },
+        select: { id: true, fullName: true, phone: true, status: true, licenseCategory: true }
+      })
+    : [];
+
+  const applicantIds = [...new Set([...applications.map((row) => row.applicantId), ...byPhone.map((row) => row.id)])];
+  const returned = [];
+
+  for (const applicantId of applicantIds) {
+    const existing = await prisma.applicant.findUnique({
+      where: { id: applicantId },
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        status: true,
+        licenseCategory: true,
+        preferredExamTime: true
+      }
+    });
+    if (!existing) {
+      continue;
+    }
+    if (existing.status === "WAITING_FOR_SLOT" && isWrongCategoryHold(existing)) {
+      continue;
+    }
+
+    await clearApplicantAssignment(applicantId, WRONG_CATEGORY_HOLD_MESSAGE);
+    await prisma.application.updateMany({
+      where: { applicantId },
+      data: { status: "WRONG_CATEGORY_RETURNED" }
+    });
+    returned.push({
+      id: existing.id,
+      fullName: existing.fullName,
+      phone: existing.phone,
+      licenseCategory: existing.licenseCategory,
+      preferredExamTime: existing.preferredExamTime,
+      previousStatus: existing.status
+    });
+  }
+
+  return { returned: returned.length, applicants: returned };
+}
+
 export async function deleteApplicant(id) {
   await prisma.applicant.delete({ where: { id: Number(id) } });
   return { ok: true };
