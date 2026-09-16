@@ -16,7 +16,6 @@ import {
   assignScheduleToApplicant,
   applicantRequestedCategory,
   claimWaitingApplicantAssignment,
-  clearApplicantAssignment,
   getApplicantById,
   isWrongCategoryHold,
   listWaitingApplicants,
@@ -203,7 +202,6 @@ export async function matchApplicantsToSchedule(schedule) {
 
 export async function processPendingAutomations() {
   await ensureDatabaseSchema();
-  await releaseInFlightApplicantsWithoutLiveSeats();
   const pending = await prisma.applicant.findMany({
     where: { status: "PENDING" },
     orderBy: { updatedAt: "asc" }
@@ -243,71 +241,8 @@ export async function processPendingAutomations() {
   return pending.length;
 }
 
-async function releaseInFlightApplicantsWithoutLiveSeats() {
-  const inFlight = await prisma.applicant.findMany({
-    where: { status: { in: ["PENDING", "RESERVING_SLOT", "SLOT_RESERVED"] } },
-    select: {
-      id: true,
-      requestedLicenseCategory: true,
-      licenseCategory: true,
-      examDate: true,
-      examTime: true,
-      lastError: true
-    }
-  });
-  if (inFlight.length === 0) {
-    return;
-  }
-
-  const liveCache = new Map();
-  async function hasLiveSeats(applicant) {
-    const category = applicantRequestedCategory(applicant);
-    const examTime = String(applicant.examTime || "").trim();
-    const examDate = applicant.examDate ? new Date(applicant.examDate) : null;
-    if (!category || !examTime || !examDate || Number.isNaN(examDate.getTime())) {
-      return false;
-    }
-    const key = `${category}|${examDate.toISOString().slice(0, 10)}|${examTime}`;
-    if (!liveCache.has(key)) {
-      liveCache.set(
-        key,
-        findExamSchedule({
-          licenseCategory: category,
-          examCenter: SYSTEM_EXAM_CENTER,
-          examDate,
-          examTime,
-          location: SYSTEM_EXAM_LOCATION
-        })
-          .then((live) => Number(live?.remainingCapacity) > 0)
-          .catch(() => false)
-      );
-    }
-    return liveCache.get(key);
-  }
-
-  for (const applicant of inFlight) {
-    if (isWrongCategoryHold(applicant)) {
-      continue;
-    }
-    const available = await hasLiveSeats(applicant);
-    if (available) {
-      continue;
-    }
-    const category = applicantRequestedCategory(applicant);
-    await clearApplicantAssignment(
-      applicant.id,
-      `No live Irembo seats for Category ${category || "this request"} yet. Waiting — Irembo has not opened that slot.`
-    );
-    logger.info("Returned applicant to estimate list because live Irembo seats are not available", {
-      applicantId: applicant.id,
-      category
-    });
-  }
-}
-
 export async function processAllWaitingApplicants(options = {}) {
   await ensureDatabaseSchema();
-  await releaseInFlightApplicantsWithoutLiveSeats();
   const onlyIds = Array.isArray(options.applicantIds)
     ? new Set(options.applicantIds.map((id) => Number(id)))
     : null;
@@ -375,19 +310,18 @@ export async function processAllWaitingApplicants(options = {}) {
     }
     const failedScheduleIds = await getFailedScheduleIds(applicant.id);
     const liveSlots = liveByCategory.get(category) || [];
-    const localSlots = openSchedules.filter((schedule) => scheduleMatchesApplicant(applicant, schedule));
-    const byId = new Map();
-    for (const schedule of [...liveSlots, ...localSlots]) {
-      byId.set(schedule.scheduleId, schedule);
-    }
-    const candidates = [...byId.values()].filter((schedule) => {
+    const sourceSlots =
+      liveSlots.length > 0
+        ? liveSlots
+        : openSchedules.filter((schedule) => scheduleMatchesApplicant(applicant, schedule));
+    const candidates = sourceSlots.filter((schedule) => {
       if ((seatsLeft.get(schedule.scheduleId) || 0) <= 0) {
         return false;
       }
       if (isScheduleBlocked(schedule.scheduleId, failedScheduleIds) || isScheduleBlocked(schedule.examScheduleId, failedScheduleIds)) {
         return false;
       }
-      return scheduleMatchesApplicant(applicant, schedule) || extractLicenseCategoryToken(schedule.category) === category;
+      return extractLicenseCategoryToken(schedule.category) === category;
     });
     const nearest = sortSchedulesByPreferredTime(candidates, applicant.preferredExamTime)[0];
     if (!nearest) {

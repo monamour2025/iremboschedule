@@ -253,15 +253,36 @@ export async function listSchedules(options = {}) {
   });
 }
 
-/** Category slots for pick-slot UI — always merges priority center (Busanza) for every category. */
+/** Pick Slot Now: only seats Irembo currently shows as open for that category. */
 export async function listCategorySlotsForPicker(category, options = {}) {
   const normalizedCategory = String(category || "").trim().toUpperCase();
   if (!normalizedCategory) {
     return [];
   }
 
-  const priority = getMonitorPriorityConfig();
   const center = String(options.center || "").trim();
+  try {
+    const { listLiveOpenSlotsForCategory } = await import("../providers/iremboApplicationProvider.js");
+    const liveRows = await listLiveOpenSlotsForCategory(normalizedCategory);
+    const filtered = liveRows.filter((row) => {
+      if (center && !isSystemExamCenter(row.center)) {
+        return false;
+      }
+      return scheduleMatchesCategory(row, normalizedCategory) && isOpenUpcomingSchedule(row);
+    });
+    if (filtered.length > 0) {
+      return filtered.sort(
+        (a, b) => new Date(a.startDateTime || 0) - new Date(b.startDateTime || 0)
+      );
+    }
+  } catch (error) {
+    logger.warn("Live pick-slot listing failed; falling back to scanned seats", {
+      category: normalizedCategory,
+      message: error.message
+    });
+  }
+
+  const priority = getMonitorPriorityConfig();
   const location = options.location ? String(options.location).trim() : undefined;
 
   if (center) {

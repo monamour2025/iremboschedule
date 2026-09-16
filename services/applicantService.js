@@ -59,6 +59,10 @@ export function applicantRequestedCategory(applicant) {
   );
 }
 
+export function isPickSlotApplicant(applicant) {
+  return /^pick slot/i.test(String(applicant?.batch?.name || applicant?.batchName || ""));
+}
+
 export function scheduleMatchesApplicant(applicant, schedule) {
   const wantedCategory = applicantRequestedCategory(applicant);
   const scheduleCategory = extractLicenseCategoryToken(schedule?.category || schedule?.scheduleId);
@@ -1835,6 +1839,7 @@ export async function getApplicantById(id, includeSensitive = false) {
   const applicant = await prisma.applicant.findUnique({
     where: { id: Number(id) },
     include: {
+      batch: true,
       applications: { orderBy: { createdAt: "desc" } },
       automationLogs: { orderBy: { createdAt: "desc" }, take: 20 }
     }

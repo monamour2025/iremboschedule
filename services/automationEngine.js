@@ -23,6 +23,7 @@ import {
   clearApplicantAssignment,
   getApplicantById,
   hasAssignedExam,
+  isPickSlotApplicant,
   setApplicantEntityId,
   setApplicantProvisionalLicense,
   setApplicantStatus
@@ -598,10 +599,18 @@ export async function runApplicantAutomation(applicantId) {
         if (failedScheduleId) {
           await appendFailedScheduleId(applicantId, failedScheduleId);
         }
-        await clearApplicantAssignment(
-          applicantId,
-          "Irembo said this slot is full or not in the future. Waiting for the next matching slot."
-        );
+        if (isPickSlotApplicant(applicantRecord)) {
+          await setApplicantStatus(
+            applicantId,
+            "FAILED_BOOKING",
+            error.message || "Irembo rejected the slot you picked. Pick another open seat and click Automate Codes."
+          );
+        } else {
+          await clearApplicantAssignment(
+            applicantId,
+            "Irembo said this slot is full or not in the future. Waiting for the next matching slot."
+          );
+        }
         clearAutomationCooldown(applicantId);
         await logAutomationEvent({
           applicantId,
