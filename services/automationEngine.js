@@ -6,6 +6,7 @@ import { appendFailedScheduleId } from "../lib/failedSchedules.js";
 import { extractIremboApplicationNumber } from "../lib/iremboApplicationNumbers.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch, isSystemExamCenter, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
+import { liveIremboRowMatchesCategory } from "../lib/scheduleTime.js";
 import {
   buildExamScheduleDate,
   createDrivingLicenseApplication,
@@ -194,6 +195,15 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     }
 
     const preferredLocation = SYSTEM_EXAM_LOCATION;
+    const wantedCategory = resolveAutomationLicenseCategory(applicantRecord);
+    if (candidate.schedule && !liveIremboRowMatchesCategory(candidate.schedule, wantedCategory)) {
+      logger.warn("Rejecting live Irembo slot because category does not match the applicant request", {
+        applicantId: applicantRecord.id,
+        wantedCategory,
+        examScheduleId: candidate.examScheduleId
+      });
+      return null;
+    }
     const assignedTime = String(assignedSchedule.examTime || candidate.examTime || "").trim();
     if (
       assignedTime &&

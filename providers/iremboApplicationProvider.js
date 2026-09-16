@@ -17,7 +17,8 @@ import {
   parseTimeRange,
   resolveRowStartDateTime,
   timeIsWithinRange,
-  timeMatchesRequestedSlot
+  timeMatchesRequestedSlot,
+  liveIremboRowMatchesCategory
 } from "../lib/scheduleTime.js";
 import { resolveIremboNotificationContact } from "../lib/iremboContact.js";
 import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
@@ -615,6 +616,21 @@ async function listLiveScheduleCandidates({
         if (!isBookableScheduleId(bookableId)) {
           continue;
         }
+        if (!liveIremboRowMatchesCategory(row, licenseCategory)) {
+          logger.warn("Skipping live Irembo row with a different licence category", {
+            requestedCategory: licenseCategory,
+            rowCategory: row.categoryOrLane || row.category || row.licenseCategory || null,
+            examScheduleId: bookableId
+          });
+          continue;
+        }
+
+        const remainingCapacity = Number(
+          row.remainingCapacity ?? row.remainingSlots ?? row.availableSlots ?? row.availablePlaces ?? 1
+        );
+        if (Number.isFinite(remainingCapacity) && remainingCapacity <= 0) {
+          continue;
+        }
 
         const rowStart = resolveRowStartDateTime(row, { selectedDate, startTime });
         const candidateTime = rowStart ? formatScheduleTimeLocal(rowStart) : startTime;
@@ -684,8 +700,13 @@ export async function findExamSchedule({
 }
 
 export async function listBookableSchedulesForApplicant(applicant, assignedSchedule) {
+  const licenseCategory = String(
+    applicant.requestedLicenseCategory || applicant.licenseCategory || ""
+  )
+    .trim()
+    .toUpperCase();
   return listLiveScheduleCandidates({
-    licenseCategory: applicant.licenseCategory,
+    licenseCategory,
     location: applicant.preferredLocation,
     examCenter: assignedSchedule.examCenter,
     examDate: assignedSchedule.examDate,
@@ -695,7 +716,9 @@ export async function listBookableSchedulesForApplicant(applicant, assignedSched
 
 export async function resolveLiveScheduleForApplicant(applicant, assignedSchedule) {
   return findExamSchedule({
-    licenseCategory: applicant.licenseCategory,
+    licenseCategory: String(applicant.requestedLicenseCategory || applicant.licenseCategory || "")
+      .trim()
+      .toUpperCase(),
     examCenter: assignedSchedule.examCenter,
     examDate: assignedSchedule.examDate,
     examTime: assignedSchedule.examTime,
