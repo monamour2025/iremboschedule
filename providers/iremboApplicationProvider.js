@@ -18,7 +18,9 @@ import {
   resolveRowStartDateTime,
   timeIsWithinRange,
   timeMatchesRequestedSlot,
-  liveIremboRowMatchesCategory
+  liveIremboRowMatchesCategory,
+  liveRowHasOpenSeats,
+  liveRowRemainingCapacity
 } from "../lib/scheduleTime.js";
 import { resolveIremboNotificationContact } from "../lib/iremboContact.js";
 import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
@@ -647,10 +649,12 @@ async function listLiveScheduleCandidates({
           continue;
         }
 
-        const remainingCapacity = Number(
-          row.remainingCapacity ?? row.remainingSlots ?? row.availableSlots ?? row.availablePlaces ?? 1
-        );
-        if (Number.isFinite(remainingCapacity) && remainingCapacity <= 0) {
+        if (!liveRowHasOpenSeats(row)) {
+          logger.info("Skipping live Irembo row with no remaining seats", {
+            requestedCategory: licenseCategory,
+            examScheduleId: bookableId,
+            remainingCapacity: liveRowRemainingCapacity(row)
+          });
           continue;
         }
 
@@ -682,7 +686,8 @@ async function listLiveScheduleCandidates({
           schedule: row,
           testCenter,
           locationName: SYSTEM_EXAM_LOCATION,
-          amount
+          amount,
+          remainingCapacity: liveRowRemainingCapacity(row)
         });
       }
     }
@@ -706,12 +711,16 @@ export async function findExamSchedule({
     examTime
   });
 
-  const match = candidates.find((candidate) => isSystemExamCenter(candidate.examCenter)) || null;
+  const match =
+    candidates
+      .filter((candidate) => isSystemExamCenter(candidate.examCenter))
+      .sort((left, right) => Number(right.remainingCapacity || 0) - Number(left.remainingCapacity || 0))[0] ||
+    null;
 
   if (!match) {
     const selectedDate = formatScheduleDateLocal(examDate);
     throw new Error(
-      `No live schedule found for ${examCenter} on ${selectedDate} at ${examTime} (${location})`
+      `No live Irembo seats for ${licenseCategory} at ${examCenter} on ${selectedDate} at ${examTime}`
     );
   }
   return {
@@ -723,6 +732,7 @@ export async function findExamSchedule({
     location: SYSTEM_EXAM_LOCATION,
     locationName: SYSTEM_EXAM_LOCATION,
     amount: match.amount,
+    remainingCapacity: match.remainingCapacity,
     examCenter: match.examCenter,
     examDate: match.examDate,
     examTime: match.examTime

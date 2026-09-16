@@ -4,7 +4,17 @@ import { applyIremboResponseCookies, mergeCookieString, warmIremboSession } from
 import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
 import { extractBookableScheduleId, extractGuidFromRow } from "../lib/scheduleIds.js";
-import { formatScheduleTimeLocal, formatScheduleDateLocal, parseTimeRange, resolveRowStartDateTime, isUpcomingSchedule, dedupeOpenUpcomingSchedules } from "../lib/scheduleTime.js";
+import {
+  formatScheduleTimeLocal,
+  formatScheduleDateLocal,
+  parseTimeRange,
+  resolveRowStartDateTime,
+  isUpcomingSchedule,
+  dedupeOpenUpcomingSchedules,
+  extractLicenseCategoryToken,
+  liveIremboRowMatchesCategory,
+  liveRowHasOpenSeats
+} from "../lib/scheduleTime.js";
 import { centerMatchesScanLocation, getIremboScanDistrictForCenter, getMonitorPriorityConfig, isCenterLocationValid, resolveScheduleLocation } from "../lib/monitorPriority.js";
 import { examCentersMatch, isSystemExamCenter, preferCanonicalCenter, centerSearchTerms, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
 
@@ -209,7 +219,9 @@ function normalizeSchedule(row, sourceLocation, sourceCategory, hints = {}) {
       center,
       firstValue(row, ["locationName", "location", "district", "place"]) || sourceLocation
     ) || sourceLocation;
-  const category = firstValue(row, ["categoryOrLane", "category", "licenseCategory"]) || sourceCategory;
+  const category =
+    extractLicenseCategoryToken(firstValue(row, ["categoryOrLane", "category", "licenseCategory"])) ||
+    extractLicenseCategoryToken(sourceCategory);
   const startDateTime = resolveRowStartDateTime(row, hints);
   const timeLabel = hints.startTime || firstValue(row, ["startTime", "time", "examTime"]);
   const fallbackScheduleId = [category, location, center, startDateTime?.toISOString(), timeLabel]
@@ -241,6 +253,12 @@ function normalizeSchedule(row, sourceLocation, sourceCategory, hints = {}) {
 
 function keepNormalizedSchedule(schedule, scanLocation) {
   if (!schedule?.scheduleId || !isCenterLocationValid(schedule) || !isSystemExamCenter(schedule.center)) {
+    return false;
+  }
+  if (!extractLicenseCategoryToken(schedule.category)) {
+    return false;
+  }
+  if (!(Number(schedule.remainingCapacity) > 0)) {
     return false;
   }
   if (!isUpcomingSchedule(schedule)) {
@@ -457,8 +475,7 @@ async function expandSchedulesByTimeRanges(category, location, locationRows) {
           });
 
           for (const row of rows) {
-            const rowCategory = firstValue(row, ["categoryOrLane", "category", "licenseCategory"]);
-            if (rowCategory && String(rowCategory).toUpperCase() !== String(category).toUpperCase()) {
+            if (!liveIremboRowMatchesCategory(row, category)) {
               continue;
             }
             const rowCenter = firstValue(row, [
@@ -471,10 +488,7 @@ async function expandSchedulesByTimeRanges(category, location, locationRows) {
             if (testCenter && rowCenter && !examCentersMatch(rowCenter, testCenter)) {
               continue;
             }
-            const remainingCapacity = asInteger(
-              firstValue(row, ["remainingCapacity", "remainingSlots", "availableSlots", "availablePlaces"])
-            );
-            if (remainingCapacity !== null && remainingCapacity <= 0) {
+            if (!liveRowHasOpenSeats(row)) {
               continue;
             }
             const schedule = normalizeSchedule(row, location, category, {
@@ -501,21 +515,6 @@ async function expandSchedulesByTimeRanges(category, location, locationRows) {
         selectedDate,
         message: error.message
       });
-    }
-  }
-
-  if (schedules.length === 0) {
-    for (const { row, sourceLocation, sourceCategory } of locationRows) {
-      const schedule = normalizeSchedule(row, sourceLocation, sourceCategory);
-      const dedupeKey = scheduleDedupeKey(schedule);
-      if (!schedule.scheduleId || seen.has(dedupeKey)) {
-        continue;
-      }
-      if (!keepNormalizedSchedule(schedule, location)) {
-        continue;
-      }
-      seen.add(dedupeKey);
-      schedules.push(schedule);
     }
   }
 
@@ -563,10 +562,7 @@ async function appendPriorityCenterSchedules(schedulesById, categories) {
 
         for (const rows of rowSets) {
           for (const row of rows) {
-            const remainingCapacity = asInteger(
-              firstValue(row, ["remainingCapacity", "remainingSlots", "availableSlots", "availablePlaces"])
-            );
-            if (remainingCapacity !== null && remainingCapacity <= 0) {
+            if (!liveIremboRowMatchesCategory(row, category) || !liveRowHasOpenSeats(row)) {
               continue;
             }
             const rowDate = firstValue(row, ["scheduleDate", "selectedDate", "startDate", "date", "examDate"]);

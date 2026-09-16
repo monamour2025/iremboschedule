@@ -4,9 +4,9 @@ import { withApplicantAutomationLock, markApplicantRateLimited, shouldDeferAutom
 import { isApplicantHeldForBatch } from "../lib/bulkAutomationHold.js";
 import { appendFailedScheduleId } from "../lib/failedSchedules.js";
 import { extractIremboApplicationNumber } from "../lib/iremboApplicationNumbers.js";
-import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
+import { extractRawScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch, isSystemExamCenter, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
-import { liveIremboRowMatchesCategory } from "../lib/scheduleTime.js";
+import { liveIremboRowMatchesCategory, liveRowHasOpenSeats } from "../lib/scheduleTime.js";
 import {
   buildExamScheduleDate,
   createDrivingLicenseApplication,
@@ -197,8 +197,16 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
 
     const preferredLocation = SYSTEM_EXAM_LOCATION;
     const wantedCategory = resolveAutomationLicenseCategory(applicantRecord);
-    if (candidate.schedule && !liveIremboRowMatchesCategory(candidate.schedule, wantedCategory)) {
-      logger.warn("Rejecting live Irembo slot because category does not match the applicant request", {
+    if (!candidate.schedule || !liveIremboRowMatchesCategory(candidate.schedule, wantedCategory)) {
+      logger.warn("Rejecting slot because it is not a live Irembo row for the requested category", {
+        applicantId: applicantRecord.id,
+        wantedCategory,
+        examScheduleId: candidate.examScheduleId
+      });
+      return null;
+    }
+    if (!liveRowHasOpenSeats(candidate.schedule)) {
+      logger.warn("Rejecting live Irembo slot with no remaining seats", {
         applicantId: applicantRecord.id,
         wantedCategory,
         examScheduleId: candidate.examScheduleId
@@ -253,21 +261,6 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
   }
 
   try {
-    const assignedGuid = extractRawScheduleId(
-      applicantRecord.matchedExamScheduleId || applicantRecord.assignedScheduleId
-    );
-    if (isBookableScheduleId(assignedGuid)) {
-      const direct = await attemptReserve({
-        examScheduleId: assignedGuid,
-        examCenter: assignedSchedule.examCenter,
-        examDate: assignedSchedule.examDate,
-        examTime: assignedSchedule.examTime
-      });
-      if (direct) {
-        return direct;
-      }
-    }
-
     const liveAssigned = await findExamSchedule({
       licenseCategory: resolveAutomationLicenseCategory(applicantRecord),
       examCenter: assignedSchedule.examCenter,
@@ -281,7 +274,8 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
       examDate: assignedSchedule.examDate,
       examTime: assignedSchedule.examTime,
       locationName: liveAssigned.locationName,
-      amount: liveAssigned.amount
+      amount: liveAssigned.amount,
+      schedule: liveAssigned.schedule
     });
     if (resolved) {
       return resolved;
