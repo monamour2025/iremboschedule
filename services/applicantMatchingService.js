@@ -16,12 +16,14 @@ import {
   assignScheduleToApplicant,
   applicantRequestedCategory,
   claimWaitingApplicantAssignment,
+  clearApplicantAssignment,
   getApplicantById,
+  isPickSlotApplicant,
   isWrongCategoryHold,
   listWaitingApplicants,
   scheduleMatchesApplicant
 } from "./applicantService.js";
-import { formatScheduleTimeLocal, sortSchedulesByPreferredTime, isOpenUpcomingSchedule, extractLicenseCategoryToken } from "../lib/scheduleTime.js";
+import { formatScheduleTimeLocal, sortSchedulesByPreferredTime, isOpenUpcomingSchedule, extractLicenseCategoryToken, liveIremboRowMatchesCategory } from "../lib/scheduleTime.js";
 
 export { extractRawScheduleId } from "../lib/scheduleIds.js";
 
@@ -107,7 +109,9 @@ export async function resolveBookableAssignment(schedule, options = {}) {
   if (
     isBookableScheduleId(schedule.examScheduleId) &&
     Number(schedule.remainingCapacity) > 0 &&
-    Number(schedule.amount) > 0
+    Number(schedule.amount) > 0 &&
+    schedule.liveRow &&
+    liveIremboRowMatchesCategory(schedule.liveRow, category)
   ) {
     return {
       examScheduleId: extractRawScheduleId(schedule.examScheduleId),
@@ -128,66 +132,42 @@ export async function resolveBookableAssignment(schedule, options = {}) {
     examTime
   });
 
-  try {
-    const live = await findExamSchedule({
-      licenseCategory: category,
-      examCenter,
-      examDate,
-      examTime,
-      location
-    });
-    const liveMatches =
-      examCentersMatch(live.examCenter, examCenter) &&
-      (!location || locationsMatch(live.locationName, location)) &&
-      isBookableScheduleId(live.examScheduleId);
-    if (!liveMatches) {
-      throw new Error("Could not resolve a live Irembo slot for this requested category and time.");
-    }
-    if (Number.isFinite(Number(live.remainingCapacity)) && Number(live.remainingCapacity) <= 0) {
-      throw new Error(
-        `No live Irembo seats for ${schedule.category} at ${examTime}. Waiting for the next matching slot.`
-      );
-    }
-
-    const amount = Number(live.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error(
-        `Live Irembo ${schedule.category} slot at ${examTime} has no category price. Refusing to book with a guessed amount.`
-      );
-    }
-
-    return {
-      examScheduleId: live.examScheduleId,
-      examCenter,
-      examDate,
-      examTime: live.examTime || examTime,
-      locationName: location,
-      assignedScheduleId: schedule.scheduleId,
-      amount
-    };
-  } catch (error) {
-    const detectedGuid = extractRawScheduleId(schedule.examScheduleId || schedule.scheduleId);
-    const detectedOpen = Number(schedule.remainingCapacity || 0) > 0;
-    const detectedAmount = Number(schedule.amount);
-    if (isBookableScheduleId(detectedGuid) && detectedOpen && Number.isFinite(detectedAmount) && detectedAmount > 0) {
-      logger.warn("Using detected category slot after live lookup failed", {
-        scheduleId: schedule.scheduleId,
-        category,
-        examScheduleId: detectedGuid,
-        message: error.message
-      });
-      return {
-        examScheduleId: detectedGuid,
-        examCenter,
-        examDate,
-        examTime,
-        locationName: location,
-        assignedScheduleId: schedule.scheduleId,
-        amount: detectedAmount
-      };
-    }
-    throw error;
+  const live = await findExamSchedule({
+    licenseCategory: category,
+    examCenter,
+    examDate,
+    examTime,
+    location
+  });
+  const liveMatches =
+    examCentersMatch(live.examCenter, examCenter) &&
+    (!location || locationsMatch(live.locationName, location)) &&
+    isBookableScheduleId(live.examScheduleId);
+  if (!liveMatches) {
+    throw new Error("Could not resolve a live Irembo slot for this requested category and time.");
   }
+  if (!(Number(live.remainingCapacity) > 0)) {
+    throw new Error(
+      `No live Irembo seats for ${schedule.category} at ${examTime}. Waiting for the next matching slot.`
+    );
+  }
+
+  const amount = Number(live.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(
+      `Live Irembo ${schedule.category} slot at ${examTime} has no category price. Refusing to book with a guessed amount.`
+    );
+  }
+
+  return {
+    examScheduleId: live.examScheduleId,
+    examCenter,
+    examDate,
+    examTime: live.examTime || examTime,
+    locationName: location,
+    assignedScheduleId: schedule.scheduleId,
+    amount
+  };
 }
 
 export async function assignScheduleFromMonitor(applicantId, scheduleId) {
@@ -224,8 +204,54 @@ export async function matchApplicantsToSchedule(schedule) {
   return processAllWaitingApplicants();
 }
 
+async function returnEstimateApplicantsIfCategoryHasNoLiveSeats() {
+  const inFlight = await prisma.applicant.findMany({
+    where: { status: { in: ["PENDING", "RESERVING_SLOT", "SLOT_RESERVED"] } },
+    include: { batch: true }
+  });
+  if (inFlight.length === 0) {
+    return;
+  }
+
+  const liveByCategory = new Map();
+  async function liveOpenCount(category) {
+    if (!category) {
+      return 0;
+    }
+    if (!liveByCategory.has(category)) {
+      liveByCategory.set(
+        category,
+        listLiveOpenSlotsForCategory(category).then((rows) =>
+          rows.filter((row) => Number(row.remainingCapacity) > 0).length
+        )
+      );
+    }
+    return liveByCategory.get(category);
+  }
+
+  for (const applicant of inFlight) {
+    if (isPickSlotApplicant(applicant) || isWrongCategoryHold(applicant)) {
+      continue;
+    }
+    const category = applicantRequestedCategory(applicant);
+    const openCount = await liveOpenCount(category);
+    if (openCount > 0) {
+      continue;
+    }
+    await clearApplicantAssignment(
+      applicant.id,
+      `Category ${category || "this request"} is not open on Irembo. Waiting until that category is detected.`
+    );
+    logger.info("Returned estimate applicant because their category has no live remaining seats", {
+      applicantId: applicant.id,
+      category
+    });
+  }
+}
+
 export async function processPendingAutomations() {
   await ensureDatabaseSchema();
+  await returnEstimateApplicantsIfCategoryHasNoLiveSeats();
   const pending = await prisma.applicant.findMany({
     where: { status: "PENDING" },
     orderBy: { updatedAt: "asc" }
@@ -267,6 +293,7 @@ export async function processPendingAutomations() {
 
 export async function processAllWaitingApplicants(options = {}) {
   await ensureDatabaseSchema();
+  await returnEstimateApplicantsIfCategoryHasNoLiveSeats();
   const onlyIds = Array.isArray(options.applicantIds)
     ? new Set(options.applicantIds.map((id) => Number(id)))
     : null;
@@ -333,13 +360,10 @@ export async function processAllWaitingApplicants(options = {}) {
       continue;
     }
     const failedScheduleIds = await getFailedScheduleIds(applicant.id);
-    const liveSlots = liveByCategory.get(category) || [];
-    const detectedSlots = openSchedules.filter((schedule) => scheduleMatchesApplicant(applicant, schedule));
-    const byId = new Map();
-    for (const schedule of [...liveSlots, ...detectedSlots]) {
-      byId.set(schedule.scheduleId, schedule);
-    }
-    const candidates = [...byId.values()].filter((schedule) => {
+    const liveSlots = (liveByCategory.get(category) || []).filter(
+      (schedule) => Number(schedule.remainingCapacity) > 0
+    );
+    const candidates = liveSlots.filter((schedule) => {
       if ((seatsLeft.get(schedule.scheduleId) || 0) <= 0) {
         return false;
       }

@@ -769,13 +769,7 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
       examTime: ""
     });
     for (const candidate of candidates) {
-      if (
-        Number.isFinite(Number(candidate.remainingCapacity)) &&
-        Number(candidate.remainingCapacity) <= 0
-      ) {
-        continue;
-      }
-      if (!candidate.examScheduleId) {
+      if (!(Number(candidate.remainingCapacity) > 0) || !candidate.examScheduleId) {
         continue;
       }
       byId.set(candidate.examScheduleId, {
