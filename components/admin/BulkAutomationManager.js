@@ -815,8 +815,7 @@ export default function BulkAutomationManager() {
                 disabled={
                   editSaving ||
                   (!editForm.selectedScheduleId &&
-                    (!editForm.preferredLocation?.trim() ||
-                    !editForm.examCenter?.trim())))
+                    (!editForm.preferredLocation?.trim() || !editForm.examCenter?.trim()))
                 }
                 className="h-10 rounded-lg bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
               >
