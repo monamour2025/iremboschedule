@@ -368,7 +368,7 @@ export default function BulkAutomationManager() {
     }
     const timer = setInterval(() => {
       loadBatches(true);
-    }, 30000);
+    }, 90000);
     return () => clearInterval(timer);
   }, [runningBatches.length]);
 

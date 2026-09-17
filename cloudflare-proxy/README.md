@@ -1,28 +1,27 @@
-# Cloudflare proxy (for networks that block Vercel)
+# Cloudflare proxy (cache + reachability)
 
-Some ISPs block Vercel CDN IPs. This Worker proxies the live app through Cloudflare, which is reachable from those networks.
+This Worker is the URL you open in the browser (`https://irembo-schedule-proxy.caramel-pickup.workers.dev`).
 
-## Setup (one time, ~3 minutes)
+It does **two** jobs:
 
-1. Create a free account at [cloudflare.com](https://dash.cloudflare.com/sign-up).
-2. Install Wrangler and log in:
+1. Reach the app when a local ISP blocks Vercel.
+2. **Cut Vercel CPU** by caching static files (~1 day) and GET APIs (~20 seconds) on Cloudflare. Repeat refreshes of lists and slots do not hit Vercel every time.
 
-   ```powershell
-   npm install -g wrangler
-   wrangler login
-   ```
+It is **not** a replacement for Vercel. Booking, Estimate matching, and the 15-minute GitHub scan still run on Vercel. If nobody is searching (everyone on hold / finished), that scan now returns immediately so it barely uses CPU.
 
-3. Deploy:
+## Deploy after code changes
 
-   ```powershell
-   cd cloudflare-proxy
-   wrangler deploy
-   ```
+From the repo:
 
-4. Open the URL Wrangler prints, e.g. `https://irembo-schedule-proxy.<your-account>.workers.dev`
+```powershell
+cd cloudflare-proxy
+npx wrangler deploy
+```
 
-Use that URL on PCs that cannot reach `iremboschedule-seven.vercel.app`. GitHub Actions and Vercel automation keep using the original URL.
+Until you deploy the Worker, the live `workers.dev` URL still has the old “forward everything” proxy.
+
+GitHub Actions should keep calling `iremboschedule-seven.vercel.app` (not this Worker) so cron is never served from cache.
 
 ## Optional custom domain
 
-In Cloudflare dashboard → Workers → your worker → Settings → Domains, attach a subdomain you own (e.g. `schedule.yourdomain.com`).
+In Cloudflare dashboard → Workers → your worker → Settings → Domains, attach a subdomain you own.
