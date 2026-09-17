@@ -172,6 +172,9 @@ function hasActiveUnpaidApplication(applicant) {
 }
 
 function statusHint(status, lastError, applicationNumber, applicant = {}) {
+  if (applicant.searchPaused) {
+    return "On hold. The system is not searching or booking for this person until you press Resume.";
+  }
   switch (status) {
     case "SAVED":
       if (applicant.entityId) {
@@ -569,6 +572,7 @@ function serializeApplicant(applicant, includeSensitive = false) {
       : null,
     existingLicenseVehicleClass: applicant.existingLicenseVehicleClass || null,
     requestedLicenseCategory: applicant.requestedLicenseCategory || null,
+    searchPaused: Boolean(applicant.searchPaused),
     status: applicant.status,
     statusHint: statusHint(applicant.status, applicant.lastError, applicationNumber, applicant),
     lastError: applicant.lastError,
@@ -1610,6 +1614,90 @@ export async function clearApplicantAssignment(id, lastError = null) {
   return prisma.applicant.findUnique({ where: { id: applicantId } });
 }
 
+const SEARCH_HOLD_MESSAGE =
+  "On hold. Resume when the test codes look correct — the system will then search for this person.";
+
+const DONE_SEARCH_STATUSES = new Set([
+  "APPLICATION_CREATED",
+  "COMPLETED",
+  "PAYMENT_PENDING",
+  "PAID"
+]);
+
+const IN_FLIGHT_SEARCH_STATUSES = new Set([
+  "PENDING",
+  "SAVED",
+  "FETCHING_PROFILE",
+  "LOOKUP_COMPLETED",
+  "LICENSE_VALIDATED",
+  "RESERVING_SLOT",
+  "SLOT_RESERVED",
+  "RUNNING"
+]);
+
+export async function pauseApplicantSearch(ids) {
+  await ensureDatabaseSchema();
+  const applicantIds = (Array.isArray(ids) ? ids : [ids]).map((id) => Number(id)).filter(Boolean);
+  let paused = 0;
+  for (const applicantId of applicantIds) {
+    const existing = await prisma.applicant.findUnique({ where: { id: applicantId } });
+    if (!existing || DONE_SEARCH_STATUSES.has(existing.status)) {
+      continue;
+    }
+    if (IN_FLIGHT_SEARCH_STATUSES.has(existing.status)) {
+      await clearApplicantAssignment(applicantId, SEARCH_HOLD_MESSAGE);
+    }
+    await prisma.applicant.update({
+      where: { id: applicantId },
+      data: { searchPaused: true, lastError: SEARCH_HOLD_MESSAGE, status: "WAITING_FOR_SLOT" }
+    });
+    paused += 1;
+  }
+  return { paused };
+}
+
+export async function resumeApplicantSearch(ids = null) {
+  await ensureDatabaseSchema();
+  const where = ids
+    ? { id: { in: (Array.isArray(ids) ? ids : [ids]).map((id) => Number(id)).filter(Boolean) } }
+    : { searchPaused: true };
+  const rows = await prisma.applicant.findMany({ where, select: { id: true, lastError: true } });
+  for (const row of rows) {
+    await prisma.applicant.update({
+      where: { id: row.id },
+      data: {
+        searchPaused: false,
+        lastError: String(row.lastError || "").includes("On hold") ? null : row.lastError
+      }
+    });
+  }
+  return { resumed: rows.length };
+}
+
+export async function pauseRestAndKeepTestApplicants({ keepIds = [], keepCount = 5 } = {}) {
+  await ensureDatabaseSchema();
+  const all = await prisma.applicant.findMany({
+    orderBy: { createdAt: "asc" },
+    select: { id: true, status: true, searchPaused: true }
+  });
+  const active = all.filter((row) => !DONE_SEARCH_STATUSES.has(row.status));
+  const requestedKeep = (Array.isArray(keepIds) ? keepIds : []).map((id) => Number(id)).filter(Boolean);
+  const keepSet = new Set(requestedKeep.filter((id) => active.some((row) => row.id === id)));
+  const limit = Math.max(1, Math.min(Number(keepCount) || 5, 20));
+  if (keepSet.size === 0) {
+    for (const row of active) {
+      if (keepSet.size >= limit) {
+        break;
+      }
+      keepSet.add(row.id);
+    }
+  }
+  const pauseIds = active.filter((row) => !keepSet.has(row.id)).map((row) => row.id);
+  await resumeApplicantSearch([...keepSet]);
+  const paused = await pauseApplicantSearch(pauseIds);
+  return { kept: [...keepSet], ...paused };
+}
+
 const WRONG_CATEGORY_IREMBO_SCHEDULE_IDS = [
   "f4c20cbe-a7d1-4b98-9d60-88f5615289ae",
   "c5dc1851-5e63-4fec-88da-3212c5eba3b1",
@@ -1711,7 +1799,7 @@ export async function listWaitingApplicants() {
   await ensureDatabaseSchema();
   assertAutomationModels();
   return prisma.applicant.findMany({
-    where: { status: "WAITING_FOR_SLOT" },
+    where: { status: "WAITING_FOR_SLOT", searchPaused: false },
     orderBy: { createdAt: "asc" },
     include: { batch: true }
   });

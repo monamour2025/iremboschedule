@@ -22,6 +22,8 @@ export default function ApplicantsList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [holdBusy, setHoldBusy] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [editSlots, setEditSlots] = useState([]);
@@ -156,9 +158,78 @@ export default function ApplicantsList() {
     }
     try {
       await adminFetch(`/api/applicants/${id}`, { method: "DELETE" });
+      setSelectedIds((current) => current.filter((value) => value !== id));
       await loadApplicants();
     } catch (deleteError) {
       setError(deleteError.message);
+    }
+  }
+
+  function toggleSelected(id) {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
+    );
+  }
+
+  async function handlePauseRest() {
+    setError("");
+    setHoldBusy(true);
+    try {
+      const payload = await adminFetch("/api/applicants/search-hold", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "pauseRest",
+          keepCount: 5,
+          keepIds: selectedIds
+        })
+      });
+      const kept = payload.kept?.length || 0;
+      setSuccess(
+        `Testing ${kept} applicant(s). ${payload.paused || 0} other(s) are on hold until you press Resume.`
+      );
+      setSelectedIds(payload.kept || []);
+      await loadApplicants();
+    } catch (holdError) {
+      setError(holdError.message);
+    } finally {
+      setHoldBusy(false);
+    }
+  }
+
+  async function handleResumeAll() {
+    setError("");
+    setHoldBusy(true);
+    try {
+      const payload = await adminFetch("/api/applicants/search-hold", {
+        method: "POST",
+        body: JSON.stringify({ action: "resumeAll" })
+      });
+      setSuccess(`Resumed ${payload.resumed || 0} applicant(s). The system will search for them again.`);
+      await loadApplicants();
+    } catch (holdError) {
+      setError(holdError.message);
+    } finally {
+      setHoldBusy(false);
+    }
+  }
+
+  async function handleToggleHold(applicant) {
+    setError("");
+    setHoldBusy(true);
+    try {
+      await adminFetch("/api/applicants/search-hold", {
+        method: "POST",
+        body: JSON.stringify({
+          action: applicant.searchPaused ? "resume" : "pause",
+          applicantIds: [applicant.id]
+        })
+      });
+      setSuccess(applicant.searchPaused ? `${applicant.fullName} resumed.` : `${applicant.fullName} is on hold.`);
+      await loadApplicants();
+    } catch (holdError) {
+      setError(holdError.message);
+    } finally {
+      setHoldBusy(false);
     }
   }
 
@@ -252,7 +323,7 @@ export default function ApplicantsList() {
   return (
     <AdminShell
       title="Automation queue"
-      description="Track applicants while automation runs."
+      description="Track applicants while automation runs. Pause the rest so you can test a few people first."
       onSecretSaved={loadApplicants}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -266,6 +337,22 @@ export default function ApplicantsList() {
           <Link href="/admin/bulk" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium">
             Bulk automate
           </Link>
+          <button
+            type="button"
+            onClick={handlePauseRest}
+            disabled={holdBusy}
+            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-950"
+          >
+            {holdBusy ? "Updating..." : selectedIds.length ? `Pause rest (keep ${selectedIds.length})` : "Pause rest (keep 5)"}
+          </button>
+          <button
+            type="button"
+            onClick={handleResumeAll}
+            disabled={holdBusy}
+            className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-950"
+          >
+            Resume all
+          </button>
         </div>
         <button
           type="button"
@@ -286,7 +373,10 @@ export default function ApplicantsList() {
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <tr>
+                <tr>
+                <th className="px-4 py-3">
+                  <span className="sr-only">Select</span>
+                </th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">National ID</th>
                 <th className="px-4 py-3">Phone</th>
@@ -304,13 +394,13 @@ export default function ApplicantsList() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan="12" className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan="13" className="px-4 py-8 text-center text-slate-500">
                     Loading...
                   </td>
                 </tr>
               ) : applicants.length === 0 ? (
                 <tr>
-                  <td colSpan="12" className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan="13" className="px-4 py-8 text-center text-slate-500">
                     No applicants yet.{" "}
                     <Link href="/admin/applicants/new" className="font-medium text-teal-700 underline">
                       Add one
@@ -324,7 +414,16 @@ export default function ApplicantsList() {
                 </tr>
               ) : (
                 applicants.map((applicant) => (
-                  <tr key={applicant.id}>
+                  <tr key={applicant.id} className={applicant.searchPaused ? "bg-amber-50/70" : undefined}>
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(applicant.id)}
+                        onChange={() => toggleSelected(applicant.id)}
+                        disabled={Boolean(applicant.applicationNumber)}
+                        aria-label={`Select ${applicant.fullName}`}
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium">{applicant.fullName}</td>
                     <td className="px-4 py-3">{applicant.nationalId}</td>
                     <td className="px-4 py-3">{applicant.phone}</td>
@@ -351,7 +450,9 @@ export default function ApplicantsList() {
                     </td>
                     <td className="px-4 py-3">
                       <div className={`font-medium ${statusTone(applicant.status)}`}>
-                        {formatStatusLabel(applicant.status, applicant.applicationNumber)}
+                        {applicant.searchPaused
+                          ? "On hold"
+                          : formatStatusLabel(applicant.status, applicant.applicationNumber)}
                       </div>
                       {applicant.batchName ? (
                         <div className="mt-1 text-xs text-slate-500">Batch: {applicant.batchName}</div>
@@ -368,6 +469,14 @@ export default function ApplicantsList() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleHold(applicant)}
+                          disabled={holdBusy || Boolean(applicant.applicationNumber)}
+                          className="rounded border border-amber-300 px-2 py-1 text-xs text-amber-900"
+                        >
+                          {applicant.searchPaused ? "Resume" : "Pause"}
+                        </button>
                         <button
                           type="button"
                           onClick={() => openEdit(applicant)}

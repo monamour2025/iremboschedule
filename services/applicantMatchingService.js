@@ -230,7 +230,7 @@ async function returnEstimateApplicantsIfCategoryHasNoLiveSeats() {
   }
 
   for (const applicant of inFlight) {
-    if (isPickSlotApplicant(applicant) || isWrongCategoryHold(applicant)) {
+    if (isPickSlotApplicant(applicant) || isWrongCategoryHold(applicant) || applicant.searchPaused) {
       continue;
     }
     const category = applicantRequestedCategory(applicant);
@@ -302,7 +302,7 @@ export async function processAllWaitingApplicants(options = {}) {
     if (onlyIds && !onlyIds.has(Number(applicant.id))) {
       return false;
     }
-    if (isWrongCategoryHold(applicant)) {
+                if (isWrongCategoryHold(applicant) || applicant.searchPaused) {
       return false;
     }
     return !isApplicantHeldByLoadedBatch(applicant);
