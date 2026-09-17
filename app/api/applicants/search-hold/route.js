@@ -3,6 +3,7 @@ import { logger } from "../../../../lib/logger.js";
 import {
   pauseApplicantSearch,
   pauseRestAndKeepTestApplicants,
+  pauseCountApplicants,
   resumeApplicantSearch
 } from "../../../../services/applicantService.js";
 
@@ -19,6 +20,10 @@ export async function POST(request) {
         keepIds: body.keepIds || [],
         keepCount: body.keepCount || 5
       });
+      return Response.json({ ok: true, ...result });
+    }
+    if (action === "pauseCount") {
+      const result = await pauseCountApplicants(body.count || body.pauseCount || 0);
       return Response.json({ ok: true, ...result });
     }
     if (action === "pause") {

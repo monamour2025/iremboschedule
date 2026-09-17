@@ -24,6 +24,7 @@ export default function ApplicantsList() {
   const [success, setSuccess] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
   const [holdBusy, setHoldBusy] = useState(false);
+  const [holdCount, setHoldCount] = useState("5");
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [editSlots, setEditSlots] = useState([]);
@@ -179,7 +180,7 @@ export default function ApplicantsList() {
         method: "POST",
         body: JSON.stringify({
           action: "pauseRest",
-          keepCount: 5,
+          keepCount: Number(holdCount) || 5,
           keepIds: selectedIds
         })
       });
@@ -188,6 +189,26 @@ export default function ApplicantsList() {
         `Testing ${kept} applicant(s). ${payload.paused || 0} other(s) are on hold until you press Resume.`
       );
       setSelectedIds(payload.kept || []);
+      await loadApplicants();
+    } catch (holdError) {
+      setError(holdError.message);
+    } finally {
+      setHoldBusy(false);
+    }
+  }
+
+  async function handlePauseCount() {
+    setError("");
+    setHoldBusy(true);
+    try {
+      const payload = await adminFetch("/api/applicants/search-hold", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "pauseCount",
+          count: Number(holdCount) || 0
+        })
+      });
+      setSuccess(`Paused ${payload.paused || 0} applicant(s). They stay on hold until Resume.`);
       await loadApplicants();
     } catch (holdError) {
       setError(holdError.message);
@@ -337,13 +358,37 @@ export default function ApplicantsList() {
           <Link href="/admin/bulk" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium">
             Bulk automate
           </Link>
+          <label className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-950">
+            Number
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={holdCount}
+              onChange={(event) => setHoldCount(event.target.value)}
+              className="h-8 w-16 rounded border border-amber-300 bg-white px-2 text-sm"
+              aria-label="How many applicants to keep searching or to pause"
+            />
+          </label>
           <button
             type="button"
             onClick={handlePauseRest}
             disabled={holdBusy}
             className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-950"
           >
-            {holdBusy ? "Updating..." : selectedIds.length ? `Pause rest (keep ${selectedIds.length})` : "Pause rest (keep 5)"}
+            {holdBusy
+              ? "Updating..."
+              : selectedIds.length
+                ? `Pause rest (keep ${selectedIds.length} selected)`
+                : `Keep ${Number(holdCount) || 5} searching`}
+          </button>
+          <button
+            type="button"
+            onClick={handlePauseCount}
+            disabled={holdBusy}
+            className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-medium text-amber-950"
+          >
+            Pause {Number(holdCount) || 0}
           </button>
           <button
             type="button"

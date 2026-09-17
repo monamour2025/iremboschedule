@@ -1683,7 +1683,7 @@ export async function pauseRestAndKeepTestApplicants({ keepIds = [], keepCount =
   const active = all.filter((row) => !DONE_SEARCH_STATUSES.has(row.status));
   const requestedKeep = (Array.isArray(keepIds) ? keepIds : []).map((id) => Number(id)).filter(Boolean);
   const keepSet = new Set(requestedKeep.filter((id) => active.some((row) => row.id === id)));
-  const limit = Math.max(1, Math.min(Number(keepCount) || 5, 20));
+  const limit = Math.max(1, Math.min(Number(keepCount) || 5, Math.max(active.length, 1)));
   if (keepSet.size === 0) {
     for (const row of active) {
       if (keepSet.size >= limit) {
@@ -1696,6 +1696,20 @@ export async function pauseRestAndKeepTestApplicants({ keepIds = [], keepCount =
   await resumeApplicantSearch([...keepSet]);
   const paused = await pauseApplicantSearch(pauseIds);
   return { kept: [...keepSet], ...paused };
+}
+
+export async function pauseCountApplicants(count) {
+  await ensureDatabaseSchema();
+  const limit = Math.max(1, Number(count) || 0);
+  const all = await prisma.applicant.findMany({
+    orderBy: { createdAt: "desc" },
+    select: { id: true, status: true, searchPaused: true }
+  });
+  const pauseIds = all
+    .filter((row) => !DONE_SEARCH_STATUSES.has(row.status) && !row.searchPaused)
+    .slice(0, limit)
+    .map((row) => row.id);
+  return pauseApplicantSearch(pauseIds);
 }
 
 const WRONG_CATEGORY_IREMBO_SCHEDULE_IDS = [
