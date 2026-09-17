@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AdminShell from "@/components/admin/AdminShell";
 import { adminFetch } from "@/lib/adminFetch";
@@ -25,6 +25,7 @@ export default function ApplicantsList() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [holdBusy, setHoldBusy] = useState(false);
   const [holdCount, setHoldCount] = useState("5");
+  const [listFilter, setListFilter] = useState("all");
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [editSlots, setEditSlots] = useState([]);
@@ -341,6 +342,22 @@ export default function ApplicantsList() {
       )
     : editSlots;
 
+  const holdCountValue = applicants.filter((applicant) => applicant.searchPaused).length;
+  const waitingCountValue = applicants.filter(
+    (applicant) => applicant.status === "WAITING_FOR_SLOT" && !applicant.searchPaused
+  ).length;
+  const visibleApplicants = useMemo(() => {
+    if (listFilter === "hold") {
+      return applicants.filter((applicant) => applicant.searchPaused);
+    }
+    if (listFilter === "waiting") {
+      return applicants.filter(
+        (applicant) => applicant.status === "WAITING_FOR_SLOT" && !applicant.searchPaused
+      );
+    }
+    return applicants;
+  }, [applicants, listFilter]);
+
   return (
     <AdminShell
       title="Automation queue"
@@ -411,9 +428,51 @@ export default function ApplicantsList() {
       {error ? <p className="rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-900">{error}</p> : null}
       {success ? <p className="rounded-lg bg-emerald-100 px-3 py-2 text-sm text-emerald-900">{success}</p> : null}
 
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setListFilter("all")}
+          className={
+            listFilter === "all"
+              ? "rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white"
+              : "rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800"
+          }
+        >
+          All ({applicants.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setListFilter("waiting")}
+          className={
+            listFilter === "waiting"
+              ? "rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white"
+              : "rounded-lg border border-teal-300 bg-white px-3 py-1.5 text-sm font-medium text-teal-900"
+          }
+        >
+          Waiting for slot ({waitingCountValue})
+        </button>
+        <button
+          type="button"
+          onClick={() => setListFilter("hold")}
+          className={
+            listFilter === "hold"
+              ? "rounded-lg bg-amber-700 px-3 py-1.5 text-sm font-medium text-white"
+              : "rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-950"
+          }
+        >
+          On hold ({holdCountValue})
+        </button>
+      </div>
+
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
-          <h2 className="text-base font-semibold text-slate-950">Applicants</h2>
+          <h2 className="text-base font-semibold text-slate-950">
+            {listFilter === "hold"
+              ? "On hold"
+              : listFilter === "waiting"
+                ? "Waiting for slot"
+                : "Applicants"}
+          </h2>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -457,8 +516,16 @@ export default function ApplicantsList() {
                     .
                   </td>
                 </tr>
+              ) : visibleApplicants.length === 0 ? (
+                <tr>
+                  <td colSpan="13" className="px-4 py-8 text-center text-slate-500">
+                    {listFilter === "hold"
+                      ? "No applicants are on hold."
+                      : "No applicants are waiting for a slot."}
+                  </td>
+                </tr>
               ) : (
-                applicants.map((applicant) => (
+                visibleApplicants.map((applicant) => (
                   <tr key={applicant.id} className={applicant.searchPaused ? "bg-amber-50/70" : undefined}>
                     <td className="px-4 py-3">
                       <input
