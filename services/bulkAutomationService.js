@@ -78,6 +78,49 @@ async function normalizeLegacyDraftApplicants() {
   });
 }
 
+async function shouldHoldNewEstimateApplicants(batch) {
+  const pausedCount = await prisma.applicant.count({ where: { searchPaused: true } });
+  if (pausedCount > 0) {
+    return true;
+  }
+  return batch?.status === "RUNNING" || batch?.status === "SCHEDULED";
+}
+
+async function resolveSaveTargetBatch({ name, batchId }) {
+  if (!batchId) {
+    return prisma.automationBatch.create({
+      data: {
+        name: name?.trim() || `Applicant list ${new Date().toLocaleString()}`,
+        scheduledAt: new Date(),
+        status: "DRAFT"
+      }
+    });
+  }
+
+  const existing = await prisma.automationBatch.findUnique({ where: { id: Number(batchId) } });
+  if (!existing) {
+    const error = new Error("Applicant list not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  if (existing.status === "DRAFT" || existing.status === "RUNNING" || existing.status === "SCHEDULED") {
+    return existing;
+  }
+  if (existing.status === "COMPLETED") {
+    return prisma.automationBatch.create({
+      data: {
+        name: name?.trim() || `${existing.name} (more people)`,
+        scheduledAt: new Date(),
+        status: "DRAFT"
+      }
+    });
+  }
+
+  const error = new Error("This list cannot take more people. Start a new Estimate list.");
+  error.statusCode = 400;
+  throw error;
+}
+
 export async function saveDraftBatch({ name, applicants = [], batchId = null, autoStart = false }) {
   await ensureDatabaseSchema();
   await normalizeLegacyDraftApplicants();
@@ -87,34 +130,19 @@ export async function saveDraftBatch({ name, applicants = [], batchId = null, au
     throw error;
   }
 
-  let batch;
-  if (batchId) {
-    batch = await prisma.automationBatch.findUnique({ where: { id: Number(batchId) } });
-    if (!batch) {
-      const error = new Error("Applicant list not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-    if (batch.status !== "DRAFT") {
-      const error = new Error("Only draft lists can be edited. Create a new list instead.");
-      error.statusCode = 400;
-      throw error;
-    }
-  } else {
-    batch = await prisma.automationBatch.create({
-      data: {
-        name: name?.trim() || `Applicant list ${new Date().toLocaleString()}`,
-        scheduledAt: new Date(),
-        status: "DRAFT"
-      }
-    });
-  }
+  const batch = await resolveSaveTargetBatch({ name, batchId });
+  const holdNew = await shouldHoldNewEstimateApplicants(batch);
 
   const created = [];
   for (const row of applicants) {
     const label = row.fullName?.trim() || row.nationalId?.trim() || "Applicant";
+    const isEstimate = !String(row.selectedScheduleId || "").trim();
     try {
-      created.push(await createApplicantForBulk(row, batch.id));
+      created.push(
+        await createApplicantForBulk(row, batch.id, {
+          searchPaused: holdNew && isEstimate
+        })
+      );
     } catch (error) {
       const wrapped = new Error(`${label}: ${error.message}`);
       wrapped.statusCode = error.statusCode || 400;
@@ -130,14 +158,16 @@ export async function saveDraftBatch({ name, applicants = [], batchId = null, au
     return {
       batch: started,
       applicants: started.applicants || created,
-      autoStarted: true
+      autoStarted: true,
+      heldNew: holdNew
     };
   }
 
   return {
     batch: detail,
     applicants: created,
-    autoStarted: false
+    autoStarted: false,
+    heldNew: holdNew
   };
 }
 

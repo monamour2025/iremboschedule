@@ -89,19 +89,23 @@ export default function BulkAutomationManager() {
 
   const draftBatches = useMemo(() => batches.filter((batch) => batch.status === "DRAFT"), [batches]);
   const runningBatches = useMemo(() => batches.filter((batch) => batch.status === "RUNNING"), [batches]);
+  const appendableBatches = useMemo(
+    () => batches.filter((batch) => ["DRAFT", "RUNNING", "SCHEDULED"].includes(batch.status)),
+    [batches]
+  );
   const savedDraftBatches = useMemo(
     () => draftBatches.filter((batch) => batch.applicantCount > 0),
     [draftBatches]
   );
   const activeDraftBatch = useMemo(() => {
     if (targetBatchId) {
-      const selected = draftBatches.find((batch) => String(batch.id) === targetBatchId);
+      const selected = appendableBatches.find((batch) => String(batch.id) === targetBatchId);
       if (selected?.applicantCount > 0) {
         return selected;
       }
     }
-    return savedDraftBatches[0] || null;
-  }, [draftBatches, savedDraftBatches, targetBatchId]);
+    return runningBatches[0] || savedDraftBatches[0] || null;
+  }, [appendableBatches, runningBatches, savedDraftBatches, targetBatchId]);
 
 
   async function loadBatches(silent = false) {
@@ -167,13 +171,14 @@ export default function BulkAutomationManager() {
   }, []);
 
   useEffect(() => {
-    if (targetBatchId && savedDraftBatches.some((batch) => String(batch.id) === targetBatchId)) {
+    if (targetBatchId && appendableBatches.some((batch) => String(batch.id) === targetBatchId)) {
       return;
     }
-    if (savedDraftBatches.length > 0) {
-      setTargetBatchId(String(savedDraftBatches[0].id));
+    const preferred = runningBatches[0] || savedDraftBatches[0] || appendableBatches[0];
+    if (preferred) {
+      setTargetBatchId(String(preferred.id));
     }
-  }, [savedDraftBatches, targetBatchId]);
+  }, [appendableBatches, runningBatches, savedDraftBatches, targetBatchId]);
 
   const usedSlotQueries = useMemo(() => {
     const queries = new Map();
@@ -243,11 +248,6 @@ export default function BulkAutomationManager() {
       const missingSite = rows.find((row) => !row.selectedScheduleId && !row.examCenter?.trim());
       if (missingSite) {
         setError(`${missingSite.fullName || "Each applicant"} needs a preferred exam site.`);
-        return;
-      }
-      const missingTime = rows.find((row) => !row.selectedScheduleId && !applicantDesiredTime(row));
-      if (missingTime) {
-        setError(`${missingTime.fullName || "Each applicant"} needs a desired time for auto-matching.`);
         return;
       }
     } else {
@@ -342,14 +342,16 @@ export default function BulkAutomationManager() {
       const savedCount = payload.applicants?.length || rows.length;
       setSuccess(
         isEstimateMode
-          ? payload.autoStarted
-            ? `Saved and started monitoring ${savedCount} estimate applicant(s). The system will match slots and create codes automatically when detected.`
-            : `Saved ${savedCount} estimate applicant(s). Monitoring will start automatically.`
+          ? payload.heldNew
+            ? `Saved ${savedCount} person(s) on hold. People already searching stay searching. Resume (or Keep N searching) only for the ones you want the system to look for.`
+            : payload.autoStarted
+              ? `Saved and started monitoring ${savedCount} estimate applicant(s). The system will match slots and create codes automatically when detected.`
+              : `Saved ${savedCount} estimate applicant(s). Monitoring will start automatically.`
           : `Saved ${savedCount} applicant(s) to the list. Click Automate Codes when ready.`
       );
       setRows([buildEmptyRow()]);
       const batchId = payload.batch?.id || payload.id;
-      if (!targetBatchId && batchId) {
+      if (batchId) {
         setTargetBatchId(String(batchId));
       }
       await loadBatches();
@@ -503,10 +505,6 @@ export default function BulkAutomationManager() {
       setError("Select a preferred exam site.");
       return;
     }
-    if (!applicantDesiredTime(editForm)) {
-      setError("Type or select a desired time.");
-      return;
-    }
     if (!isValidEntityId(editForm.entityId)) {
       setError("Paste the Irembo entity ID UUID in the form.");
       return;
@@ -553,7 +551,7 @@ export default function BulkAutomationManager() {
         <h2 className="text-base font-semibold text-teal-950">Add applicants to list</h2>
         <p className="mt-1 text-sm text-teal-800">
           {listMode === "estimate"
-            ? "Estimate list: save Category A/B/C people with a desired time. The system watches Irembo for THAT category only and books when that category has an open Busanza seat. Category A waiting does not block Category B."
+            ? "Estimate list: add people any time, even after the list is already searching. New people go on hold if you already paused others or the list is running — Resume them when you want search. Desired time is optional (typed time is used first, then the nearest open Busanza sitting for that category)."
             : "Pick slot now: choose an open seat for that person's category, save, then Automate Codes. This books the seat you picked now — it does not wait on the estimate list."}
         </p>
 
@@ -818,8 +816,7 @@ export default function BulkAutomationManager() {
                   editSaving ||
                   (!editForm.selectedScheduleId &&
                     (!editForm.preferredLocation?.trim() ||
-                    !editForm.examCenter?.trim() ||
-                    !applicantDesiredTime(editForm)))
+                    !editForm.examCenter?.trim())))
                 }
                 className="h-10 rounded-lg bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
               >

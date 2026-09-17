@@ -825,7 +825,25 @@ async function resolveAddCategoryEntityId(input, nationalId, nationalIdHash) {
   return null;
 }
 
-async function createAddCategoryApplicantForBulk(input, batchId) {
+function shouldKeepExistingApplicantSearching(existing) {
+  if (!existing || existing.searchPaused) {
+    return false;
+  }
+  return !["APPLICATION_CREATED", "COMPLETED", "PAYMENT_PENDING", "PAID"].includes(existing.status);
+}
+
+function applyEstimateSearchHold(applicantData, existing, searchPaused) {
+  if (!searchPaused || shouldKeepExistingApplicantSearching(existing)) {
+    return applicantData;
+  }
+  return {
+    ...applicantData,
+    searchPaused: true,
+    lastError: SEARCH_HOLD_MESSAGE
+  };
+}
+
+async function createAddCategoryApplicantForBulk(input, batchId, options = {}) {
   const selectedScheduleId = String(input.selectedScheduleId || "").trim();
   const preferredLocationInput = String(input.preferredLocation || "").trim();
   const preferredCenterInput = String(input.examCenter || input.preferredCenter || "").trim();
@@ -882,11 +900,6 @@ async function createAddCategoryApplicantForBulk(input, batchId) {
       error.statusCode = 400;
       throw error;
     }
-    if (!preferredExamTimeInput) {
-      const error = new Error(`${label}: Select a desired time for auto-matching.`);
-      error.statusCode = 400;
-      throw error;
-    }
     applicantData = {
       fullName: input.fullName.trim(),
       nationalIdEnc: encryptNationalId(nationalId),
@@ -898,7 +911,7 @@ async function createAddCategoryApplicantForBulk(input, batchId) {
       preferredLocation: preferredLocationInput,
       examType: input.examType?.trim() || "PRACTICAL",
       examCenter: preferredCenterInput,
-      preferredExamTime: preferredExamTimeInput,
+      preferredExamTime: preferredExamTimeInput || null,
       examDate: null,
       examTime: null,
       assignedScheduleId: null,
@@ -960,6 +973,10 @@ async function createAddCategoryApplicantForBulk(input, batchId) {
       applications: { orderBy: { createdAt: "desc" }, take: 1 }
     }
   });
+
+  if (isEstimateEntry) {
+    applicantData = applyEstimateSearchHold(applicantData, existing, options.searchPaused);
+  }
 
   const licensePayload = {
     applicationType: APPLICATION_TYPE_ADD_CATEGORY,
@@ -1051,14 +1068,14 @@ async function refreshBulkApplicant(applicantId) {
   return serializeApplicant(await enrichApplicantProvisionalFields(refreshed));
 }
 
-export async function createApplicantForBulk(input, batchId) {
+export async function createApplicantForBulk(input, batchId, options = {}) {
   await ensureDatabaseSchema();
   assertAutomationModels();
   input = lockApplicantExamSite(input);
 
   const applicationType = normalizeApplicationType(input.applicationType);
   if (applicationType === APPLICATION_TYPE_ADD_CATEGORY) {
-    return createAddCategoryApplicantForBulk(input, batchId);
+    return createAddCategoryApplicantForBulk(input, batchId, options);
   }
 
   const selectedScheduleId = String(input.selectedScheduleId || "").trim();
@@ -1112,11 +1129,6 @@ export async function createApplicantForBulk(input, batchId) {
       error.statusCode = 400;
       throw error;
     }
-    if (!preferredExamTimeInput) {
-      const error = new Error(`${label}: Select a desired time for auto-matching.`);
-      error.statusCode = 400;
-      throw error;
-    }
     applicantData = {
       fullName: input.fullName.trim(),
       nationalIdEnc: encryptNationalId(nationalId),
@@ -1129,7 +1141,7 @@ export async function createApplicantForBulk(input, batchId) {
       preferredLocation: preferredLocationInput,
       examType: input.examType?.trim() || "PRACTICAL",
       examCenter: preferredCenterInput,
-      preferredExamTime: preferredExamTimeInput,
+      preferredExamTime: preferredExamTimeInput || null,
       examDate: null,
       examTime: null,
       assignedScheduleId: null,
@@ -1182,6 +1194,10 @@ export async function createApplicantForBulk(input, batchId) {
       applications: { orderBy: { createdAt: "desc" }, take: 1 }
     }
   });
+
+  if (isEstimateEntry) {
+    applicantData = applyEstimateSearchHold(applicantData, existing, options.searchPaused);
+  }
 
   if (existing) {
     if (hasActiveUnpaidApplication(existing)) {
@@ -1316,15 +1332,10 @@ export async function updateBulkDraftApplicant(id, input) {
       input,
       existing.preferredExamTime || (await loadPreferredExamTime(existing.id)) || ""
     );
-    if (!preferredExamTimeInput) {
-      const error = new Error("Select a desired time for auto-matching.");
-      error.statusCode = 400;
-      throw error;
-    }
     Object.assign(data, {
       preferredLocation: preferredLocationInput,
       examCenter: preferredCenterInput,
-      preferredExamTime: preferredExamTimeInput,
+      preferredExamTime: preferredExamTimeInput || null,
       examDate: null,
       examTime: null,
       assignedScheduleId: null,
