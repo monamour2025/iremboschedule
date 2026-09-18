@@ -1,14 +1,16 @@
-# Automatic Irembo scanning is OFF while Hobby Fluid CPU is near the 4h cap.
-# Re-enable the schedule block only when usage has aged off (rolling 30 days).
-# Manual run: GitHub → Actions → Scheduled Scan → Run workflow.
+# Scan + match + create codes on GitHub (not Vercel).
+# This keeps Hobby Fluid CPU from pausing the site.
 #
-# REQUIRED GitHub repo secrets:
-#   WEBSITE_URL = iremboschedule-seven.vercel.app
-#   CRON_SECRET = same as Vercel production CRON_SECRET
+# Required GitHub secrets (copy from Vercel / local .env):
+#   DATABASE_URL, ENCRYPTION_KEY, AUTOMATION_MODE
+# Optional but needed to book: IREMBO_CITIZEN_COOKIE or IREMBO_USERNAME + IREMBO_PASSWORD
+# Optional SMS/email: RESEND_API_KEY, RESEND_FROM, ALERT_EMAIL
 
 name: Scheduled Scan
 
 on:
+  schedule:
+    - cron: "*/20 * * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -18,66 +20,43 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+      AUTOMATION_MODE: ${{ secrets.AUTOMATION_MODE }}
+      AUTOMATION_INLINE: "1"
+      IREMBO_EXPAND_TIME_SLOTS: "false"
+      IREMBO_CITIZEN_COOKIE: ${{ secrets.IREMBO_CITIZEN_COOKIE }}
+      IREMBO_USERNAME: ${{ secrets.IREMBO_USERNAME }}
+      IREMBO_PASSWORD: ${{ secrets.IREMBO_PASSWORD }}
+      IREMBO_OTP: ${{ secrets.IREMBO_OTP }}
+      IREMBO_PLATFORM_TOKEN: ${{ secrets.IREMBO_PLATFORM_TOKEN }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      RESEND_FROM: ${{ secrets.RESEND_FROM }}
+      ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+      DEFAULT_IREMBO_ENTITY_ID: ${{ secrets.DEFAULT_IREMBO_ENTITY_ID }}
     steps:
-      - name: Validate secrets and trigger scan
-        env:
-          WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Check required secrets
         run: |
-          set -euo pipefail
-
-          SECRETS_URL="https://github.com/monamour2025/iremboschedule/settings/secrets/actions"
-          MISSING=""
-
-          if [ -z "${WEBSITE_URL:-}" ]; then
-            MISSING="${MISSING} WEBSITE_URL"
-          fi
-          if [ -z "${CRON_SECRET:-}" ]; then
-            MISSING="${MISSING} CRON_SECRET"
-          fi
-
-          if [ -n "$MISSING" ]; then
-            echo "::error::Missing GitHub repository secrets:${MISSING}"
-            echo ""
-            echo "Add secrets here: ${SECRETS_URL}"
-            echo ""
-            echo "  WEBSITE_URL = iremboschedule-seven.vercel.app"
-            echo "  CRON_SECRET = same value as CRON_SECRET on Vercel production"
-            echo ""
-            echo "See .github/SCHEDULED_SCAN.md in the repo for full instructions."
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Add GitHub secret DATABASE_URL (same as Vercel)."
             exit 1
           fi
-
-          HOST="${WEBSITE_URL#https://}"
-          HOST="${HOST#http://}"
-          HOST="${HOST%/}"
-
-          echo "Calling https://${HOST}/api/cron/tick ..."
-          HTTP_CODE=$(curl -sS -w "%{http_code}" -o /tmp/cron-response.json --max-time 270 \
-            "https://${HOST}/api/cron/tick" \
-            -H "Authorization: Bearer ${CRON_SECRET}" || echo "000")
-
-          echo "HTTP status: ${HTTP_CODE}"
-          cat /tmp/cron-response.json || true
-          echo ""
-
-          if [ "$HTTP_CODE" = "401" ]; then
-            echo "::error::401 Unauthorized — CRON_SECRET on GitHub does not match Vercel production."
+          if [ -z "${ENCRYPTION_KEY:-}" ]; then
+            echo "::error::Add GitHub secret ENCRYPTION_KEY (same as Vercel)."
             exit 1
           fi
-          if [ "$HTTP_CODE" = "503" ]; then
-            echo "::error::503 — CRON_SECRET is not set on Vercel. Add it in Vercel env and redeploy."
-            exit 1
-          fi
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Cron tick failed with HTTP ${HTTP_CODE}"
-            exit 1
-          fi
-
-          if ! grep -q '"ok"[[:space:]]*:[[:space:]]*true' /tmp/cron-response.json; then
-            echo "::error::Response was HTTP 200 but ok was not true"
-            exit 1
-          fi
-
-          echo "Scheduled scan completed successfully."
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm prisma generate
+      - name: Scan Irembo and create codes
+        run: node scripts/runGithubTick.js
