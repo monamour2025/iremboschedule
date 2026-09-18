@@ -54,8 +54,6 @@ export default function ApplicationsTable() {
 
   useEffect(() => {
     loadApplications();
-    const interval = setInterval(() => loadApplications({ silent: true }), 60000);
-    return () => clearInterval(interval);
   }, []);
 
   return (

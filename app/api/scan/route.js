@@ -39,10 +39,13 @@ export async function POST(request) {
 
     const body = await request.json().catch(() => ({}));
 
-    // Vercel serverless cannot keep working after the response; run the scan in-request.
     if (process.env.VERCEL) {
-      const result = await runForegroundScan(body);
-      return Response.json(result);
+      return Response.json({
+        ok: true,
+        skipped: true,
+        skipReason: "cpu_cap",
+        message: "Scan now is disabled so Hobby Fluid CPU does not pause the site."
+      });
     }
 
     const result = startBackgroundScan(body);

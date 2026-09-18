@@ -363,13 +363,7 @@ export default function BulkAutomationManager() {
   }
 
   useEffect(() => {
-    if (runningBatches.length === 0) {
-      return undefined;
-    }
-    const timer = setInterval(() => {
-      loadBatches(true);
-    }, 90000);
-    return () => clearInterval(timer);
+    return undefined;
   }, [runningBatches.length]);
 
   async function handleCancel(batchId) {

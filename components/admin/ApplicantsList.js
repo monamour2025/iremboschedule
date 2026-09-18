@@ -91,8 +91,7 @@ export default function ApplicantsList() {
     if (!processing) {
       return undefined;
     }
-    const interval = setInterval(() => loadApplicants({ silent: true }), 120000);
-    return () => clearInterval(interval);
+    return undefined;
   }, [applicants]);
 
   async function handleLinkProfile(id) {

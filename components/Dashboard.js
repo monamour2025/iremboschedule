@@ -331,20 +331,8 @@ export default function Dashboard({
   useEffect(() => {
     mountedRef.current = true;
     refresh({ includeSchedules: true, includeExtras: true });
-
-    const coreInterval = setInterval(() => refresh(), 120000);
-    const heavyInterval = setInterval(
-      () => refresh({ includeSchedules: true, includeExtras: true }),
-      300000
-    );
-    const handleFocus = () => refresh({ includeSchedules: true, includeExtras: true });
-
-    window.addEventListener("focus", handleFocus);
     return () => {
       mountedRef.current = false;
-      clearInterval(coreInterval);
-      clearInterval(heavyInterval);
-      window.removeEventListener("focus", handleFocus);
     };
   }, [refresh]);
 

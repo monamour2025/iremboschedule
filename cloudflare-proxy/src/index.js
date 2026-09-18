@@ -28,9 +28,9 @@ function cacheTtlSeconds(pathname) {
     return 86400;
   }
   if (pathname.startsWith("/api/")) {
-    return 20;
+    return 60;
   }
-  return 0;
+  return 120;
 }
 
 function cacheKey(request) {
