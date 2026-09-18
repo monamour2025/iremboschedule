@@ -1,16 +1,14 @@
-# Automatic Irembo schedule scanning every 15 minutes.
-# Vercel Hobby cannot run sub-daily crons — GitHub Actions triggers /api/cron/tick instead.
+# Automatic Irembo scanning is OFF while Hobby Fluid CPU is near the 4h cap.
+# Re-enable the schedule block only when usage has aged off (rolling 30 days).
+# Manual run: GitHub → Actions → Scheduled Scan → Run workflow.
 #
-# REQUIRED GitHub repo secrets (Settings → Secrets and variables → Actions):
-#   WEBSITE_URL = iremboschedule-seven.vercel.app   (no https://)
+# REQUIRED GitHub repo secrets:
+#   WEBSITE_URL = iremboschedule-seven.vercel.app
 #   CRON_SECRET = same as Vercel production CRON_SECRET
-# See .github/SCHEDULED_SCAN.md for setup and troubleshooting.
 
 name: Scheduled Scan
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
 concurrency:
