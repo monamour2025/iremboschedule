@@ -748,9 +748,14 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
   }
 
   const kigaliToday = formatScheduleDateLocal(new Date());
+  const upcomingDates = [];
+  for (let day = 0; day < 14; day += 1) {
+    upcomingDates.push(formatScheduleDateLocal(new Date(Date.now() + day * 24 * 60 * 60 * 1000)));
+  }
   const dates = [
     ...new Set([
       kigaliToday,
+      ...upcomingDates,
       ...dateHints.map((value) => formatScheduleDateLocal(value)).filter(Boolean)
     ])
   ];
