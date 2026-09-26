@@ -219,9 +219,9 @@ function normalizeSchedule(row, sourceLocation, sourceCategory, hints = {}) {
       center,
       firstValue(row, ["locationName", "location", "district", "place"]) || sourceLocation
     ) || sourceLocation;
-  const category =
-    extractLicenseCategoryToken(firstValue(row, ["categoryOrLane", "category", "licenseCategory"])) ||
-    extractLicenseCategoryToken(sourceCategory);
+  const category = extractLicenseCategoryToken(
+    firstValue(row, ["categoryOrLane", "category", "licenseCategory"])
+  );
   const startDateTime = resolveRowStartDateTime(row, hints);
   const timeLabel = hints.startTime || firstValue(row, ["startTime", "time", "examTime"]);
   const fallbackScheduleId = [category, location, center, startDateTime?.toISOString(), timeLabel]
