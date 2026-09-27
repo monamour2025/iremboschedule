@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import ApplicantsList from "@/components/admin/ApplicantsList";
 
 export default function AdminApplicantsPage() {
-  redirect("/admin/bulk");
+  return <ApplicantsList />;
 }

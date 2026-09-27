@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import ReportPanel from "@/components/admin/ReportPanel";
 
 export default function AdminReportPage() {
-  redirect("/admin/bulk");
+  return <ReportPanel />;
 }

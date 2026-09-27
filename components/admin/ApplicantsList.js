@@ -366,13 +366,10 @@ export default function ApplicantsList() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           <Link
-            href="/admin/applicants/new"
-            className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white"
+            href="/admin/bulk"
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white"
           >
-            Add & automate
-          </Link>
-          <Link href="/admin/bulk" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium">
-            Bulk automate
+            Estimate list
           </Link>
           <label className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-950">
             Number
@@ -505,12 +502,8 @@ export default function ApplicantsList() {
                 <tr>
                   <td colSpan="13" className="px-4 py-8 text-center text-slate-500">
                     No applicants yet.{" "}
-                    <Link href="/admin/applicants/new" className="font-medium text-teal-700 underline">
-                      Add one
-                    </Link>{" "}
-                    or{" "}
-                    <Link href="/admin/bulk" className="font-medium text-teal-700 underline">
-                      schedule a bulk run
+                    <Link href="/admin/bulk" className="font-medium text-red-700 underline">
+                      Add people on the Estimate list
                     </Link>
                     .
                   </td>
