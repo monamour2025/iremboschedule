@@ -122,6 +122,8 @@ function collectScheduleTimes(slots, { activeCategory, row, strictSiteFilter = f
     )
   ].sort();
 }
+
+export function ApplicantEntryFields({
   row,
   onChange,
   categories,
