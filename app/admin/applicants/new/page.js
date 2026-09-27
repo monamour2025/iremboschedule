@@ -1,5 +1,5 @@
-import ApplicantForm from "@/components/admin/ApplicantForm";
+import { redirect } from "next/navigation";
 
-export default function AdminAddApplicantPage() {
-  return <ApplicantForm />;
+export default function AdminNewApplicantPage() {
+  redirect("/admin/bulk");
 }

@@ -1,5 +1,5 @@
-import ApplicationsTable from "@/components/admin/ApplicationsTable";
+import { redirect } from "next/navigation";
 
 export default function AdminApplicationsPage() {
-  return <ApplicationsTable />;
+  redirect("/admin/bulk");
 }

@@ -2,8 +2,9 @@
 
 :root {
   color-scheme: light;
-  --background: #f7f9fb;
-  --foreground: #18202f;
+  --background: #fff7f7;
+  --foreground: #1f1212;
+  --brand: #c8102e;
 }
 
 body {
@@ -17,4 +18,50 @@ button,
 input,
 select {
   font: inherit;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.85;
+  }
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.86);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.35s ease-out;
+}
+
+.animate-soft-pulse {
+  animation: soft-pulse 1.6s ease-in-out infinite;
+}
+
+.animate-pop {
+  animation: pop 0.28s ease-out;
 }

@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   TextField,
   SelectField,
-  formatSlotLabel,
   maskLicenseNumber,
   isValidEntityId,
   APPLICATION_TYPE_ADD_CATEGORY,
@@ -27,8 +26,7 @@ import {
   formatScheduleDateLocal,
   normalizeExamTimeInput,
   resolveScheduleTime,
-  scheduleMatchesCategory,
-  resolveScheduleCategory
+  scheduleMatchesCategory
 } from "@/lib/scheduleTime";
 
 const ENTITY_ID_HELP =
@@ -124,21 +122,6 @@ function collectScheduleTimes(slots, { activeCategory, row, strictSiteFilter = f
     )
   ].sort();
 }
-
-function formatPickSlotOption(schedule) {
-  const date = schedule.startDateTime ? formatScheduleDateLocal(schedule.startDateTime) : "";
-  const time = resolveScheduleTime(schedule);
-  const open = Number(schedule.remainingCapacity || 0);
-  const categoryLabel = resolveScheduleCategory(schedule)
-    ? `Cat ${resolveScheduleCategory(schedule)} · `
-    : "";
-  if (!date && !time) {
-    return `${categoryLabel}Open slot (${open} places)`;
-  }
-  return `${categoryLabel}${date}${time ? ` · ${time}` : ""} (${open} open)`;
-}
-
-export function ApplicantEntryFields({
   row,
   onChange,
   categories,
@@ -380,48 +363,6 @@ export function ApplicantEntryFields({
     onChange({ preferredExamTime, examTime: preferredExamTime });
   }
 
-  const pickNowSiteSlots = useMemo(() => {
-    if (slotOptional || !row.examCenter?.trim() || !normalizedActiveCategory || !slotsReadyForCategory) {
-      return [];
-    }
-    return siteSlotsForRow
-      .filter((schedule) => {
-        if (!matchesActiveCategory(schedule, normalizedActiveCategory)) {
-          return false;
-        }
-        if (!examCentersMatch(schedule.center, row.examCenter)) {
-          return false;
-        }
-        return Number(schedule.remainingCapacity || 0) > 0 && Boolean(resolveScheduleTime(schedule));
-      })
-      .sort((a, b) => new Date(a.startDateTime || 0) - new Date(b.startDateTime || 0));
-  }, [
-    slotOptional,
-    siteSlotsForRow,
-    normalizedActiveCategory,
-    slotsReadyForCategory,
-    row.examCenter
-  ]);
-
-  function handleSlotChange(scheduleId) {
-    if (!scheduleId) {
-      onChange({ selectedScheduleId: "", preferredExamTime: "", examTime: "" });
-      return;
-    }
-    const schedule = pickNowSiteSlots.find((slot) => slot.scheduleId === scheduleId);
-    if (!schedule || !matchesActiveCategory(schedule, normalizedActiveCategory)) {
-      return;
-    }
-    const slotTime = resolveScheduleTime(schedule) || row.preferredExamTime || "";
-    onChange({
-      selectedScheduleId: scheduleId,
-      preferredLocation: schedule?.location || "",
-      examCenter: preferCanonicalCenter(schedule?.center || row.examCenter || ""),
-      preferredExamTime: slotTime,
-      examTime: slotTime
-    });
-  }
-
   function resetWorkflowFields(applicationType) {
     onChange({
       applicationType,
@@ -518,29 +459,22 @@ export function ApplicantEntryFields({
       ? "Fetching existing licence..."
       : row.existingLicenseNumber
         ? hasEntityId
-          ? "Licence and Irembo profile linked. Select the new category and exam slot."
-          : "Licence loaded. Paste Irembo entity ID below if needed, then pick category and slot."
+          ? "Licence and Irembo profile linked. Select the new category."
+          : "Licence loaded. Paste Irembo entity ID below if needed, then pick the new category."
         : nationalIdReady
           ? "Click Fetch licence to load existing licence details."
           : "Enter national ID, then fetch licence details.";
 
-  const estimateHint = slotOptional
-    ? `This system only books ${SYSTEM_EXAM_CENTER} in ${SYSTEM_EXAM_LOCATION}. Desired time is optional. If you type one, that sitting is tried first, then the nearest open Busanza time.`
-    : "";
-
-  const slotModeHint =
-    `This system only books ${SYSTEM_EXAM_CENTER} (${SYSTEM_EXAM_LOCATION}). Select licence category, then an open date and time at that site.`;
-
   const firstLicenceHint = hasEntityId
-    ? "Entity ID saved. Select category, provisional licence, and exam slot."
+    ? "Entity ID saved. Select category and provisional licence."
     : "Paste the Irembo entity ID from DevTools (see help below).";
 
   return (
     <>
       {title ? <h3 className="mb-3 text-sm font-semibold text-slate-900">{title}</h3> : null}
 
-      <fieldset className="mb-4 rounded-lg border border-slate-200 p-4 sm:col-span-2 lg:col-span-3">
-        <legend className="px-1 text-sm font-semibold text-slate-900">Application type</legend>
+      <fieldset className="mb-4 rounded-lg border border-red-100 bg-white p-4 sm:col-span-2 lg:col-span-3">
+        <legend className="px-1 text-sm font-semibold text-red-950">Application type</legend>
         <div className="mt-2 flex flex-wrap gap-4 text-sm">
           <label className="inline-flex items-center gap-2">
             <input
@@ -600,7 +534,7 @@ export function ApplicantEntryFields({
                 event.stopPropagation();
                 void runExistingLicenseFetch();
               }}
-              className="h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-10 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {row.existingLicenseFetchStatus === "loading" ? "Fetching..." : "Fetch licence"}
             </button>
@@ -660,9 +594,9 @@ export function ApplicantEntryFields({
                   requestedLicenseCategory: value,
                   licenseCategory: value,
                   selectedScheduleId: "",
-                  examCenter: slotOptional ? row.examCenter : "",
-                  preferredLocation: slotOptional ? row.preferredLocation : "",
-                  preferredExamTime: slotOptional ? row.preferredExamTime : ""
+                  examCenter: row.examCenter || SYSTEM_EXAM_CENTER,
+                  preferredLocation: row.preferredLocation || SYSTEM_EXAM_LOCATION,
+                  preferredExamTime: row.preferredExamTime || ""
                 })
               }
               options={[
@@ -684,9 +618,9 @@ export function ApplicantEntryFields({
                 onChange({
                   licenseCategory: value,
                   selectedScheduleId: "",
-                  examCenter: slotOptional ? row.examCenter : "",
-                  preferredLocation: slotOptional ? row.preferredLocation : "",
-                  preferredExamTime: slotOptional ? row.preferredExamTime : ""
+                  examCenter: row.examCenter || SYSTEM_EXAM_CENTER,
+                  preferredLocation: row.preferredLocation || SYSTEM_EXAM_LOCATION,
+                  preferredExamTime: row.preferredExamTime || ""
                 })
               }
               options={categories.map((category) => ({ value: category, label: `Category ${category}` }))}
@@ -707,116 +641,15 @@ export function ApplicantEntryFields({
           </>
         )}
 
-        {slotOptional ? (
-          <fieldset className="sm:col-span-2 lg:col-span-3 rounded-lg border border-teal-200 p-4">
-            <legend className="px-1 text-sm font-semibold text-teal-950">Estimate preferences</legend>
-            <p className="mb-3 text-xs text-teal-800">{estimateHint}</p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <TextField
-                label="Exam site"
-                value={`${SYSTEM_EXAM_CENTER} · ${SYSTEM_EXAM_LOCATION}`}
-                onChange={() => {}}
-                readOnly
-              />
-              <p className="sm:col-span-2 text-xs text-teal-800">
-                Other Irembo sites are ignored so SMS and booking always match this center.
-              </p>
-              <SelectField
-                label="Desired time"
-                required={false}
-                value={typedDesiredTime}
-                onChange={applyDesiredTime}
-                options={[
-                  {
-                    value: "",
-                    label: centerTimesLoading || slotsLoading
-                      ? "Loading times..."
-                      : estimateTimeOptions.length === 0
-                        ? row.examCenter
-                          ? "No listed times yet — type below"
-                          : "Select exam site first"
-                        : `Select a listed time (${estimateTimeOptions.length}) or type below`
-                  },
-                  ...timeOptions.map((time) => ({ value: time, label: time }))
-                ]}
-              />
-              <label className="text-sm font-medium text-slate-800">
-                Type time
-                <input
-                  type="time"
-                  value={typedDesiredTime}
-                  onChange={(event) => applyDesiredTime(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-lg border border-teal-200 bg-white px-3 text-sm"
-                />
-                <span className="mt-1 block text-xs font-normal text-slate-600">
-                  Typing a time sets Desired time. You do not need to pick from the list.
-                </span>
-              </label>
-            </div>
-            <label className="mt-4 block text-sm font-medium text-slate-800">
-              Exam slot (optional — leave empty to auto-assign)
-              <select
-                value={row.selectedScheduleId}
-                onChange={(event) => handleSlotChange(event.target.value)}
-                className="mt-1 h-10 w-full rounded-lg border border-teal-200 bg-white px-3 text-sm"
-                disabled={slotsLoading || (isAddCategory && !activeCategory)}
-              >
-                <option value="">Auto-assign when slots appear</option>
-                {filteredSlots.map((schedule) => (
-                  <option key={schedule.scheduleId} value={schedule.scheduleId}>
-                    {formatSlotLabel(schedule)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </fieldset>
-        ) : (
-          <fieldset className="sm:col-span-2 lg:col-span-3 rounded-lg border border-slate-200 p-4">
-            <legend className="px-1 text-sm font-semibold text-slate-950">Pick open slot</legend>
-            <p className="mb-3 text-xs text-slate-600">{slotModeHint}</p>
-            {!activeCategory ? (
-              <p className="mb-3 text-xs text-slate-500">Select licence category above first.</p>
-            ) : null}
-            <div className="grid gap-4 sm:grid-cols-2">
-              {pickSlotSiteReady ? (
-                <TextField
-                  label="Exam site"
-                  value={`${SYSTEM_EXAM_CENTER} · ${SYSTEM_EXAM_LOCATION}`}
-                  onChange={() => {}}
-                  readOnly
-                />
-              ) : null}
-              {!pickSlotSiteReady ? null : !row.examCenter ? (
-                <p className="text-sm text-slate-600">Select an exam site to see open date and time slots.</p>
-              ) : pickSlotLoading ? (
-                <p className="sm:col-span-2 text-sm text-slate-600">Loading open slots...</p>
-              ) : pickNowSiteSlots.length > 0 ? (
-                <div className="sm:col-span-2">
-                  <SelectField
-                    label="Exam date & time"
-                    required
-                    value={row.selectedScheduleId}
-                    onChange={handleSlotChange}
-                    options={[
-                      {
-                        value: "",
-                        label: `Select date and time (${pickNowSiteSlots.length} Cat ${activeCategory} at this site)...`
-                      },
-                      ...pickNowSiteSlots.map((schedule) => ({
-                        value: schedule.scheduleId,
-                        label: formatPickSlotOption(schedule)
-                      }))
-                    ]}
-                  />
-                </div>
-              ) : (
-                <p className="sm:col-span-2 text-sm text-amber-800">
-                  No open category {activeCategory} slots at {formatExamCenterLabel(row.examCenter)}.
-                </p>
-              )}
-            </div>
-          </fieldset>
-        )}
+        <fieldset className="sm:col-span-2 lg:col-span-3 rounded-lg border border-red-100 bg-white p-4">
+          <legend className="px-1 text-sm font-semibold text-red-950">Exam site</legend>
+          <p className="text-sm text-slate-700">
+            {SYSTEM_EXAM_CENTER} · {SYSTEM_EXAM_LOCATION}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            The system books this site automatically when the category opens. No slot to pick.
+          </p>
+        </fieldset>
       </div>
     </>
   );

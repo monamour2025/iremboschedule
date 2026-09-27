@@ -78,12 +78,8 @@ async function normalizeLegacyDraftApplicants() {
   });
 }
 
-async function shouldHoldNewEstimateApplicants(batch) {
-  const pausedCount = await prisma.applicant.count({ where: { searchPaused: true } });
-  if (pausedCount > 0) {
-    return true;
-  }
-  return batch?.status === "RUNNING" || batch?.status === "SCHEDULED";
+async function shouldHoldNewEstimateApplicants() {
+  return false;
 }
 
 async function resolveSaveTargetBatch({ name, batchId }) {
@@ -131,7 +127,7 @@ export async function saveDraftBatch({ name, applicants = [], batchId = null, au
   }
 
   const batch = await resolveSaveTargetBatch({ name, batchId });
-  const holdNew = await shouldHoldNewEstimateApplicants(batch);
+  const holdNew = await shouldHoldNewEstimateApplicants();
 
   const created = [];
   for (const row of applicants) {
@@ -154,12 +150,19 @@ export async function saveDraftBatch({ name, applicants = [], batchId = null, au
   const detail = await buildBatchDetail(refreshed || batch);
 
   if (autoStart) {
+    await prisma.applicant.updateMany({
+      where: {
+        searchPaused: true,
+        status: { in: ["WAITING_FOR_SLOT", "PENDING", "SAVED", "RUNNING"] }
+      },
+      data: { searchPaused: false }
+    });
     const started = await automateBatch(batch.id);
     return {
       batch: started,
       applicants: started.applicants || created,
       autoStarted: true,
-      heldNew: holdNew
+      heldNew: false
     };
   }
 
@@ -212,6 +215,12 @@ export async function automateBatch(batchId) {
     throw error;
   }
   if (batch.status === "RUNNING") {
+    const { processPendingAutomations, processAllWaitingApplicants } = await import(
+      "./applicantMatchingService.js"
+    );
+    await processAllWaitingApplicants();
+    await processPendingAutomations();
+    await refreshRunningBatchStatuses();
     return buildBatchDetail(batch);
   }
 

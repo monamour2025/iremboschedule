@@ -61,7 +61,7 @@ export default function AdminAccessPanel({ onSaved, compact = false }) {
             <button
               type="button"
               onClick={handleSave}
-              className="h-10 rounded-lg bg-teal-700 px-4 text-sm font-semibold text-white"
+              className="h-10 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white"
             >
               Save
             </button>
@@ -89,7 +89,7 @@ export default function AdminAccessPanel({ onSaved, compact = false }) {
         <button
           type="button"
           onClick={handleSave}
-          className="h-10 rounded-lg bg-teal-700 px-4 text-sm font-semibold text-white"
+              className="h-10 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white"
         >
           Save secret
         </button>

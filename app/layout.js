@@ -4,8 +4,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "Irembo Schedule Availability Monitor",
-  description: "Monitor Irembo driving test schedule availability changes."
+  title: "Estimate list",
+  description: "Add people and watch booking progress."
 };
 
 export default function RootLayout({ children }) {
