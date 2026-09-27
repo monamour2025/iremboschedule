@@ -801,25 +801,10 @@ async function resolveAddCategoryEntityId(input, nationalId, nationalIdHash) {
     return manualEntityId;
   }
 
-  const firstName = String(input.existingLicenseFirstName || "").trim();
-  const lastName = String(input.existingLicenseLastName || "").trim();
-  const profile = await tryResolveEntityIdForExistingLicense({
-    nationalId,
-    fullName: input.fullName,
-    existingLicense:
-      firstName || lastName
-        ? { firstName, lastName }
-        : input.existingLicenseNumber
-          ? {
-              firstName,
-              lastName,
-              licenseNumber: input.existingLicenseNumber
-            }
-          : null
-  });
-  if (profile?.entityId) {
-    await cacheEntityId(nationalIdHash, profile.entityId, profile.displayName || input.fullName?.trim() || null);
-    return profile.entityId;
+  const { getCachedEntityId } = await import("./entityIdService.js");
+  const cached = await getCachedEntityId(nationalIdHash);
+  if (cached?.entityId) {
+    return cached.entityId;
   }
 
   return null;

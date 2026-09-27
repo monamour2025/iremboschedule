@@ -133,11 +133,12 @@ export default function BulkAutomationManager() {
           listMode: "estimate",
           autoStart: true,
           applicants: rows
-        })
+        }),
+        timeoutMs: 20000
       });
       const savedCount = payload.applicants?.length || rows.length;
       setSuccess(
-        `Saved ${savedCount} ${savedCount === 1 ? "person" : "people"}. Open Queue to watch Verified → Waiting → code created.`
+        `Saved ${savedCount} ${savedCount === 1 ? "person" : "people"}. They are in Queue — the scanner books when that category opens.`
       );
       setRows([buildEmptyRow()]);
       const batchId = payload.batch?.id || payload.id;

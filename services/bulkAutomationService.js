@@ -146,9 +146,6 @@ export async function saveDraftBatch({ name, applicants = [], batchId = null, au
     }
   }
 
-  const refreshed = await prisma.automationBatch.findUnique({ where: { id: batch.id } });
-  const detail = await buildBatchDetail(refreshed || batch);
-
   if (autoStart) {
     await prisma.applicant.updateMany({
       where: {
@@ -157,17 +154,27 @@ export async function saveDraftBatch({ name, applicants = [], batchId = null, au
       },
       data: { searchPaused: false }
     });
-    const started = await automateBatch(batch.id);
+    const running =
+      batch.status === "RUNNING"
+        ? batch
+        : await prisma.automationBatch.update({
+            where: { id: batch.id },
+            data: {
+              status: "RUNNING",
+              startedAt: batch.startedAt || new Date(),
+              scheduledAt: new Date()
+            }
+          });
     return {
-      batch: started,
-      applicants: started.applicants || created,
+      batch: { ...serializeBatch(running, created), applicants: created },
+      applicants: created,
       autoStarted: true,
       heldNew: false
     };
   }
 
   return {
-    batch: detail,
+    batch: { ...serializeBatch(batch, created), applicants: created },
     applicants: created,
     autoStarted: false,
     heldNew: holdNew
