@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import EstimatePeopleBoard from "@/components/admin/EstimatePeopleBoard";
+import Link from "next/link";
 import AdminShell from "@/components/admin/AdminShell";
 import { ApplicantEntryFields } from "@/components/admin/ApplicantEntryFields";
 import { adminFetch } from "@/lib/adminFetch";
@@ -31,21 +31,9 @@ export default function BulkAutomationManager() {
   const [rows, setRows] = useState([buildEmptyRow()]);
   const [categories, setCategories] = useState(["A", "A1", "B", "B1", "C", "D", "D1", "E", "F"]);
   const [targetBatchId, setTargetBatchId] = useState("");
-  const [people, setPeople] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-
-  async function loadPeople(silent = false) {
-    try {
-      const payload = await adminFetch("/api/applicants");
-      setPeople(payload.applicants || []);
-    } catch (loadError) {
-      if (!silent) {
-        setError(loadError.message);
-      }
-    }
-  }
 
   async function loadLatestBatchId() {
     try {
@@ -61,7 +49,6 @@ export default function BulkAutomationManager() {
   }
 
   useEffect(() => {
-    loadPeople(true);
     loadLatestBatchId();
     fetch("/api/status")
       .then((response) => response.json())
@@ -71,8 +58,6 @@ export default function BulkAutomationManager() {
         }
       })
       .catch(() => {});
-    const timer = setInterval(() => loadPeople(true), 8000);
-    return () => clearInterval(timer);
   }, []);
 
   function updateRow(index, patch) {
@@ -151,13 +136,14 @@ export default function BulkAutomationManager() {
         })
       });
       const savedCount = payload.applicants?.length || rows.length;
-      setSuccess(`Saved ${savedCount} ${savedCount === 1 ? "person" : "people"}. Searching for a slot now.`);
+      setSuccess(
+        `Saved ${savedCount} ${savedCount === 1 ? "person" : "people"}. Open Queue to watch Verified → Waiting → code created.`
+      );
       setRows([buildEmptyRow()]);
       const batchId = payload.batch?.id || payload.id;
       if (batchId) {
         setTargetBatchId(String(batchId));
       }
-      await loadPeople();
     } catch (saveError) {
       setError(saveError.message);
     } finally {
@@ -165,29 +151,21 @@ export default function BulkAutomationManager() {
     }
   }
 
-  async function handleRemove(applicant) {
-    if (!window.confirm(`Remove ${applicant.fullName} from the list?`)) {
-      return;
-    }
-    setError("");
-    try {
-      await adminFetch(`/api/applicants/${applicant.id}`, { method: "DELETE" });
-      setSuccess(`${applicant.fullName} removed.`);
-      await loadPeople();
-    } catch (removeError) {
-      setError(removeError.message);
-    }
-  }
-
   return (
     <AdminShell
       title="Estimate list"
-      description="Add people. The system shows them and books a code when that category is open."
-      onSecretSaved={() => loadPeople()}
+      description="Add people here. Queue watches Irembo and books the category they asked for."
+      onSecretSaved={() => loadLatestBatchId()}
     >
       <form onSubmit={handleSave} className="animate-fade-up rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-red-950">Add people</h2>
-        <p className="mt-1 text-sm text-slate-600">First licence or Add new category. Save — progress appears below.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          First licence or Add new category. After save, progress lives in{" "}
+          <Link href="/admin/applicants" className="font-semibold text-red-800 underline">
+            Queue
+          </Link>
+          .
+        </p>
 
         {error ? <p className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-900">{error}</p> : null}
         {success ? (
@@ -242,8 +220,6 @@ export default function BulkAutomationManager() {
           </button>
         </div>
       </form>
-
-      <EstimatePeopleBoard applicants={people} onRefresh={() => loadPeople()} onRemove={handleRemove} />
     </AdminShell>
   );
 }

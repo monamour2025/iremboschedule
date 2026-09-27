@@ -48,7 +48,7 @@ function isApplicantHeldByLoadedBatch(applicant) {
     return false;
   }
   if (applicant.batch.status === "DRAFT") {
-    return true;
+    return false;
   }
   if (applicant.batch.status !== "SCHEDULED") {
     return false;

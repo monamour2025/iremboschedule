@@ -19,6 +19,14 @@ export function estimateProgress(applicant) {
       detail: applicant.lastError || "Booking did not finish"
     };
   }
+  if (applicant?.searchPaused) {
+    return {
+      step: 2,
+      key: "paused",
+      label: "On hold",
+      detail: "Resume search to book this category"
+    };
+  }
   if (
     status === "WAITING_FOR_SLOT" ||
     status === "PENDING" ||
@@ -64,15 +72,25 @@ function StepIcon({ done, current, kind }) {
   );
 }
 
-export default function EstimatePeopleBoard({ applicants = [], onRefresh, onRemove }) {
+export default function EstimatePeopleBoard({
+  applicants = [],
+  onRefresh,
+  onRemove,
+  onRetry,
+  title = "Queue",
+  description,
+  emptyMessage = "No one in the queue yet. Add people on the Estimate list."
+}) {
   const people = Array.isArray(applicants) ? applicants : [];
 
   return (
     <section id="people" className="animate-fade-up rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-red-950">People on the list</h2>
-          <p className="text-sm text-slate-600">{people.length} added · progress updates automatically</p>
+          <h2 className="text-lg font-semibold text-red-950">{title}</h2>
+          <p className="text-sm text-slate-600">
+            {description || `${people.length} people · books the exact category each person requested`}
+          </p>
         </div>
         {onRefresh ? (
           <button
@@ -86,9 +104,7 @@ export default function EstimatePeopleBoard({ applicants = [], onRefresh, onRemo
       </div>
 
       {people.length === 0 ? (
-        <p className="rounded-xl bg-red-50 px-4 py-6 text-sm text-red-900">
-          No one on the list yet. Add people above and save.
-        </p>
+        <p className="rounded-xl bg-red-50 px-4 py-6 text-sm text-red-900">{emptyMessage}</p>
       ) : (
         <div className="grid gap-3">
           {people.map((applicant) => {
@@ -113,13 +129,22 @@ export default function EstimatePeopleBoard({ applicants = [], onRefresh, onRemo
                       className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ${
                         progress.key === "created"
                           ? "bg-emerald-50 text-emerald-800 ring-emerald-100"
-                          : progress.key === "failed"
+                          : progress.key === "failed" || progress.key === "paused"
                             ? "bg-red-100 text-red-900 ring-red-200"
                             : "bg-white text-red-800 ring-red-100"
                       }`}
                     >
                       {progress.label}
                     </p>
+                    {onRetry && (progress.key === "failed" || progress.key === "paused") ? (
+                      <button
+                        type="button"
+                        onClick={() => onRetry(applicant)}
+                        className="text-xs font-medium text-red-800 transition hover:text-red-950"
+                      >
+                        {progress.key === "paused" ? "Resume" : "Retry"}
+                      </button>
+                    ) : null}
                     {onRemove ? (
                       <button
                         type="button"
@@ -138,7 +163,7 @@ export default function EstimatePeopleBoard({ applicants = [], onRefresh, onRemo
                     { step: 3, kind: "created", title: "Application created successfully" }
                   ].map((item) => {
                     const done = progress.step > item.step;
-                    const current = progress.step === item.step && progress.key !== "failed";
+                    const current = progress.step === item.step && progress.key !== "failed" && progress.key !== "paused";
                     return (
                       <li
                         key={item.kind}
@@ -159,7 +184,7 @@ export default function EstimatePeopleBoard({ applicants = [], onRefresh, onRemo
                 {progress.step === 3 && applicant.applicationNumber ? (
                   <p className="mt-2 font-mono text-sm text-red-800">{applicant.applicationNumber}</p>
                 ) : null}
-                {progress.key === "failed" && progress.detail ? (
+                {progress.key === "failed" || progress.key === "paused" ? (
                   <p className="mt-2 text-sm text-red-800">{progress.detail}</p>
                 ) : null}
               </article>
