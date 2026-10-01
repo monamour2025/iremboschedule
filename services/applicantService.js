@@ -1815,7 +1815,8 @@ export async function listWaitingApplicants() {
   });
 }
 
-export async function recoverFailedSlotBookings() {
+export async function recoverFailedSlotBookings(options = {}) {
+  const includeInFlight = options.includeInFlight !== false;
   await ensureDatabaseSchema();
   assertAutomationModels();
   const { isIremboAlreadyRegisteredMessage, isIremboSlotUnavailableMessage } = await import(
@@ -1849,23 +1850,25 @@ export async function recoverFailedSlotBookings() {
     recovered += 1;
   }
 
-  const stuck = await prisma.applicant.findMany({
-    where: {
-      status: {
-        in: [
-          "PENDING",
-          "RESERVING_SLOT",
-          "SLOT_RESERVED",
-          "FETCHING_PROFILE",
-          "LOOKUP_COMPLETED",
-          "LICENSE_VALIDATED",
-          "RUNNING"
-        ]
-      },
-      updatedAt: { lt: new Date(Date.now() - 3 * 60 * 1000) }
-    },
-    select: { id: true }
-  });
+  const stuck = includeInFlight
+    ? await prisma.applicant.findMany({
+        where: {
+          status: {
+            in: [
+              "PENDING",
+              "RESERVING_SLOT",
+              "SLOT_RESERVED",
+              "FETCHING_PROFILE",
+              "LOOKUP_COMPLETED",
+              "LICENSE_VALIDATED",
+              "RUNNING"
+            ]
+          },
+          updatedAt: { lt: new Date(Date.now() - 15 * 60 * 1000) }
+        },
+        select: { id: true }
+      })
+    : [];
 
   const createdApps = stuck.length
     ? await prisma.application.findMany({
@@ -1913,7 +1916,7 @@ export async function listApplicants() {
   await ensureDatabaseSchema();
   assertAutomationModels();
   await repairStuckProfileApplicants().catch(() => 0);
-  await recoverFailedSlotBookings().catch(() => ({ recovered: 0 }));
+  await recoverFailedSlotBookings({ includeInFlight: false }).catch(() => ({ recovered: 0 }));
   await prisma.applicant.updateMany({
     where: {
       status: "PENDING",
