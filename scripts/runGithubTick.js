@@ -25,7 +25,9 @@ try {
       skipReason: result.skipReason || null,
       scanned: Boolean(result.scanned),
       scanOk: result.scan?.ok ?? null,
+      recovered: result.recovered?.value || null,
       waitingOk: result.waiting?.ok ?? null,
+      waitingMatched: Array.isArray(result.waiting?.value) ? result.waiting.value.length : null,
       pendingOk: result.pending?.ok ?? null
     })
   );

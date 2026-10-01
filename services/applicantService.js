@@ -1849,6 +1849,43 @@ export async function recoverFailedSlotBookings() {
     recovered += 1;
   }
 
+  const staleCutoff = new Date(Date.now() - 10 * 60 * 1000);
+  const stuck = await prisma.applicant.findMany({
+    where: {
+      status: {
+        in: [
+          "PENDING",
+          "RESERVING_SLOT",
+          "SLOT_RESERVED",
+          "FETCHING_PROFILE",
+          "LOOKUP_COMPLETED",
+          "LICENSE_VALIDATED",
+          "RUNNING"
+        ]
+      },
+      updatedAt: { lt: staleCutoff }
+    },
+    select: { id: true, status: true }
+  });
+
+  for (const applicant of stuck) {
+    const created = await prisma.application.findFirst({
+      where: {
+        applicantId: applicant.id,
+        applicationNumber: { not: null }
+      },
+      select: { applicationNumber: true }
+    });
+    if (String(created?.applicationNumber || "").trim()) {
+      continue;
+    }
+    await clearApplicantAssignment(
+      applicant.id,
+      "Previous booking attempt stalled. Waiting for the next matching live slot."
+    );
+    recovered += 1;
+  }
+
   const deleted = await prisma.application.deleteMany({
     where: {
       OR: [{ applicationNumber: null }, { applicationNumber: "" }],
