@@ -15,18 +15,20 @@ on:
 
 concurrency:
   group: scheduled-scan
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 60
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
       ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
       AUTOMATION_MODE: ${{ secrets.AUTOMATION_MODE }}
       AUTOMATION_INLINE: "1"
+      AUTOMATION_CONCURRENCY: "4"
+      ESTIMATE_MATCH_CONCURRENCY: "8"
       IREMBO_EXPAND_TIME_SLOTS: "false"
       IREMBO_CITIZEN_COOKIE: ${{ secrets.IREMBO_CITIZEN_COOKIE }}
       IREMBO_USERNAME: ${{ secrets.IREMBO_USERNAME }}

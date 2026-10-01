@@ -16,7 +16,7 @@ const { prisma } = await import("../lib/db.js");
 try {
   const { resumeApplicantSearch } = await import("../services/applicantService.js");
   const resumed = await resumeApplicantSearch();
-  const result = await runAutomationTick({ includeScan: true, cronScan: true, force: true });
+  const result = await runAutomationTick({ includeScan: false, cronScan: false, force: true });
   console.log(
     JSON.stringify({
       ok: true,

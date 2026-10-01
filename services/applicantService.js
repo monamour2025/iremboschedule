@@ -1849,7 +1849,6 @@ export async function recoverFailedSlotBookings() {
     recovered += 1;
   }
 
-  const staleCutoff = new Date(Date.now() - 10 * 60 * 1000);
   const stuck = await prisma.applicant.findMany({
     where: {
       status: {
@@ -1862,28 +1861,41 @@ export async function recoverFailedSlotBookings() {
           "LICENSE_VALIDATED",
           "RUNNING"
         ]
-      },
-      updatedAt: { lt: staleCutoff }
+      }
     },
-    select: { id: true, status: true }
+    select: { id: true }
   });
 
-  for (const applicant of stuck) {
-    const created = await prisma.application.findFirst({
-      where: {
-        applicantId: applicant.id,
-        applicationNumber: { not: null }
-      },
-      select: { applicationNumber: true }
-    });
-    if (String(created?.applicationNumber || "").trim()) {
-      continue;
-    }
-    await clearApplicantAssignment(
-      applicant.id,
-      "Previous booking attempt stalled. Waiting for the next matching live slot."
-    );
-    recovered += 1;
+  const createdApps = stuck.length
+    ? await prisma.application.findMany({
+        where: {
+          applicantId: { in: stuck.map((row) => row.id) },
+          applicationNumber: { not: null }
+        },
+        select: { applicantId: true, applicationNumber: true }
+      })
+    : [];
+  const hasCode = new Set(
+    createdApps
+      .filter((row) => String(row.applicationNumber || "").trim())
+      .map((row) => row.applicantId)
+  );
+  const stalledIds = stuck.map((row) => row.id).filter((id) => !hasCode.has(id));
+  if (stalledIds.length > 0) {
+    const ids = stalledIds.filter((id) => Number.isInteger(id)).join(",");
+    await prisma.$executeRawUnsafe(`
+      UPDATE "Applicant"
+      SET
+        "status" = 'WAITING_FOR_SLOT',
+        "lastError" = 'Previous booking attempt stalled. Waiting for the next matching live slot.',
+        "examTime" = '',
+        "examDate" = NULL,
+        "assignedScheduleId" = NULL,
+        "matchedExamScheduleId" = NULL,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" IN (${ids})
+    `);
+    recovered += stalledIds.length;
   }
 
   const deleted = await prisma.application.deleteMany({
