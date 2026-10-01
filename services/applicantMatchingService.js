@@ -233,6 +233,10 @@ async function returnEstimateApplicantsIfCategoryHasNoLiveSeats() {
     if (isPickSlotApplicant(applicant) || isWrongCategoryHold(applicant) || applicant.searchPaused) {
       continue;
     }
+    const ageMs = Date.now() - new Date(applicant.updatedAt).getTime();
+    if (Number.isFinite(ageMs) && ageMs < 15 * 60 * 1000) {
+      continue;
+    }
     const category = applicantRequestedCategory(applicant);
     const openCount = await liveOpenCount(category);
     if (openCount > 0) {
