@@ -14,10 +14,13 @@ const { runAutomationTick } = await import("../lib/automationTick.js");
 const { prisma } = await import("../lib/db.js");
 
 try {
-  const result = await runAutomationTick({ includeScan: true, cronScan: true });
+  const { resumeApplicantSearch } = await import("../services/applicantService.js");
+  const resumed = await resumeApplicantSearch();
+  const result = await runAutomationTick({ includeScan: true, cronScan: true, force: true });
   console.log(
     JSON.stringify({
       ok: true,
+      resumed: resumed.resumed || 0,
       skipped: Boolean(result.skipped),
       skipReason: result.skipReason || null,
       scanned: Boolean(result.scanned),
