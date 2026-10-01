@@ -1861,7 +1861,8 @@ export async function recoverFailedSlotBookings() {
           "LICENSE_VALIDATED",
           "RUNNING"
         ]
-      }
+      },
+      updatedAt: { lt: new Date(Date.now() - 3 * 60 * 1000) }
     },
     select: { id: true }
   });

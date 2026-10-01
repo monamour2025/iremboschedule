@@ -15,7 +15,7 @@ on:
 
 concurrency:
   group: scheduled-scan
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   scan:
@@ -27,8 +27,9 @@ jobs:
       ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
       AUTOMATION_MODE: ${{ secrets.AUTOMATION_MODE }}
       AUTOMATION_INLINE: "1"
-      AUTOMATION_CONCURRENCY: "4"
+      AUTOMATION_CONCURRENCY: "6"
       ESTIMATE_MATCH_CONCURRENCY: "8"
+      ESTIMATE_BOOK_LIMIT: "12"
       IREMBO_EXPAND_TIME_SLOTS: "false"
       IREMBO_CITIZEN_COOKIE: ${{ secrets.IREMBO_CITIZEN_COOKIE }}
       IREMBO_USERNAME: ${{ secrets.IREMBO_USERNAME }}

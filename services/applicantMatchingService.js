@@ -384,6 +384,9 @@ export async function processAllWaitingApplicants(options = {}) {
     planned.push({ applicant, schedule: nearest });
   }
 
+  const bookLimit = Math.max(1, Math.min(Number(process.env.ESTIMATE_BOOK_LIMIT || 12), 40));
+  const toAssign = planned.slice(0, bookLimit);
+
   const assignmentCache = new Map();
   function assignmentFor(schedule) {
     const key = schedule.scheduleId;
@@ -394,7 +397,7 @@ export async function processAllWaitingApplicants(options = {}) {
   }
 
   const assignments = [];
-  await mapWithPool(planned, MATCH_CONCURRENCY, async ({ applicant, schedule }) => {
+  await mapWithPool(toAssign, MATCH_CONCURRENCY, async ({ applicant, schedule }) => {
     try {
       const assignment = await assignmentFor(schedule);
       const claimed = await claimWaitingApplicantAssignment(applicant.id, assignment);
