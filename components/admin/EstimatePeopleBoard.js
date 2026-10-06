@@ -1,5 +1,7 @@
 "use client";
 
+import { isIremboSlotUnavailableMessage } from "@/lib/iremboSlotErrors";
+
 export function estimateProgress(applicant) {
   const status = String(applicant?.status || "");
   const created = ["APPLICATION_CREATED", "COMPLETED", "PAYMENT_PENDING", "PAID"].includes(status);
@@ -9,14 +11,6 @@ export function estimateProgress(applicant) {
       key: "created",
       label: "Application created successfully",
       detail: applicant.applicationNumber || "Code created"
-    };
-  }
-  if (status.startsWith("FAILED")) {
-    return {
-      step: 2,
-      key: "failed",
-      label: "Needs attention",
-      detail: applicant.lastError || "Booking did not finish"
     };
   }
   if (applicant?.searchPaused) {
@@ -36,7 +30,17 @@ export function estimateProgress(applicant) {
   ) {
     return { step: 2, key: "creating", label: "Creating application", detail: "Seats found — submitting to Irembo" };
   }
-  if (status === "WAITING_FOR_SLOT" || status === "SAVED") {
+  if (
+    status === "WAITING_FOR_SLOT" ||
+    status === "SAVED" ||
+    status === "FAILED_BOOKING" ||
+    status === "FAILED_APPLICATION" ||
+    status === "FAILED" ||
+    isIremboSlotUnavailableMessage(applicant?.lastError)
+  ) {
+    return { step: 2, key: "waiting", label: "Waiting for slot", detail: "Watching Busanza for this category" };
+  }
+  if (status.startsWith("FAILED")) {
     return { step: 2, key: "waiting", label: "Waiting for slot", detail: "Watching Busanza for this category" };
   }
   if (applicant?.entityId) {

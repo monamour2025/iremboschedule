@@ -284,35 +284,34 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
   );
   const assignedIsUpcoming = assignedStart && assignedStart.getTime() > Date.now();
 
-  try {
-    if (!assignedIsUpcoming) {
-      throw new Error("Assigned exam time is already in the past");
+  if (assignedIsUpcoming) {
+    try {
+      const liveAssigned = await findExamSchedule({
+        licenseCategory: resolveAutomationLicenseCategory(applicantRecord),
+        examCenter: assignedSchedule.examCenter,
+        examDate: assignedSchedule.examDate,
+        examTime: assignedSchedule.examTime,
+        location: applicantRecord.preferredLocation
+      });
+      const resolved = await attemptReserve({
+        examScheduleId: liveAssigned.examScheduleId,
+        examCenter: assignedSchedule.examCenter,
+        examDate: liveAssigned.examDate,
+        examTime: liveAssigned.examTime,
+        locationName: liveAssigned.locationName,
+        amount: liveAssigned.amount,
+        schedule: liveAssigned.schedule
+      });
+      if (resolved) {
+        return resolved;
+      }
+    } catch (error) {
+      lastError = error;
+      logger.warn("Assigned slot live resolution failed", {
+        applicantId: applicantRecord.id,
+        message: error.message
+      });
     }
-    const liveAssigned = await findExamSchedule({
-      licenseCategory: resolveAutomationLicenseCategory(applicantRecord),
-      examCenter: assignedSchedule.examCenter,
-      examDate: assignedSchedule.examDate,
-      examTime: assignedSchedule.examTime,
-      location: applicantRecord.preferredLocation
-    });
-    const resolved = await attemptReserve({
-      examScheduleId: liveAssigned.examScheduleId,
-      examCenter: assignedSchedule.examCenter,
-      examDate: liveAssigned.examDate,
-      examTime: liveAssigned.examTime,
-      locationName: liveAssigned.locationName,
-      amount: liveAssigned.amount,
-      schedule: liveAssigned.schedule
-    });
-    if (resolved) {
-      return resolved;
-    }
-  } catch (error) {
-    lastError = error;
-    logger.warn("Assigned slot live resolution failed", {
-      applicantId: applicantRecord.id,
-      message: error.message
-    });
   }
 
   try {
@@ -658,7 +657,7 @@ export async function runApplicantAutomation(applicantId) {
         } else {
           await clearApplicantAssignment(
             applicantId,
-            "Irembo said this slot is full or not in the future. Waiting for the next matching slot."
+            `Watching Busanza for Category ${resolveAutomationLicenseCategory(applicantRecord)} seats.`
           );
         }
         clearAutomationCooldown(applicantId);

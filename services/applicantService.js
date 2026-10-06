@@ -1896,14 +1896,15 @@ export async function recoverFailedSlotBookings(options = {}) {
       recovered += 1;
       continue;
     }
-    if (!isIremboSlotUnavailableMessage(applicant.lastError) && applicant.status !== "FAILED_BOOKING") {
-      continue;
+    if (
+      applicant.status === "FAILED_BOOKING" ||
+      applicant.status === "FAILED_APPLICATION" ||
+      applicant.status === "FAILED" ||
+      isIremboSlotUnavailableMessage(applicant.lastError)
+    ) {
+      await clearApplicantAssignment(applicant.id, "Watching Busanza for the requested category.");
+      recovered += 1;
     }
-    await clearApplicantAssignment(
-      applicant.id,
-      "Irembo said this slot is full or not in the future. Waiting for the next matching slot."
-    );
-    recovered += 1;
   }
 
   const stuck = includeInFlight
