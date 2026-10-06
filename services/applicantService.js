@@ -1453,18 +1453,23 @@ export async function updateApplicant(id, input) {
   return serializeApplicant(applicant);
 }
 
-export async function changeApplicantCategory(id, category) {
-  const nextCategory = String(category || "").trim().toUpperCase();
+export async function changeApplicantCategory(id, input) {
+  const payload = typeof input === "string" ? { category: input } : input || {};
+  const nextCategory = String(payload.category || payload.licenseCategory || "").trim().toUpperCase();
   if (!/^[A-Z][0-9]?$/.test(nextCategory)) {
     const error = new Error("Choose a valid licence category.");
     error.statusCode = 400;
     throw error;
   }
 
-  await updateApplicant(id, {
+  const patch = {
     licenseCategory: nextCategory,
     requestedLicenseCategory: nextCategory
-  });
+  };
+  if (payload.phone !== undefined && payload.phone !== null && String(payload.phone).trim()) {
+    patch.phone = String(payload.phone).trim();
+  }
+  await updateApplicant(id, patch);
   await prisma.applicant.update({
     where: { id: Number(id) },
     data: {

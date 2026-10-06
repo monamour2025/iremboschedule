@@ -162,7 +162,24 @@ export async function POST(request, { params }) {
       return Response.json({ ok: true, matches });
     }
     if (body.action === "setCategory") {
-      const applicant = await changeApplicantCategory(params.id, body.licenseCategory);
+      const current = await getApplicantById(params.id, false);
+      const nextCategory = String(body.licenseCategory || "").trim().toUpperCase();
+      const currentCategory = String(
+        current?.requestedLicenseCategory || current?.licenseCategory || ""
+      )
+        .trim()
+        .toUpperCase();
+      if (current && nextCategory === currentCategory) {
+        if (body.phone) {
+          await updateApplicant(params.id, { phone: body.phone });
+        }
+        const applicant = await getApplicantById(params.id, false);
+        return Response.json({ ok: true, applicant, matches: [], matched: 0 });
+      }
+      const applicant = await changeApplicantCategory(params.id, {
+        licenseCategory: body.licenseCategory,
+        phone: body.phone
+      });
       const matches = await tryMatchApplicantImmediately(params.id);
       return Response.json({
         ok: true,

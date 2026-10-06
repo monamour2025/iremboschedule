@@ -297,10 +297,12 @@ export async function processPendingAutomations() {
 
 export async function processAllWaitingApplicants(options = {}) {
   await ensureDatabaseSchema();
-  await returnEstimateApplicantsIfCategoryHasNoLiveSeats();
   const onlyIds = Array.isArray(options.applicantIds)
     ? new Set(options.applicantIds.map((id) => Number(id)))
     : null;
+  if (!onlyIds) {
+    await returnEstimateApplicantsIfCategoryHasNoLiveSeats();
+  }
 
   const waiting = (await listWaitingApplicants()).filter((applicant) => {
     if (onlyIds && !onlyIds.has(Number(applicant.id))) {
@@ -385,7 +387,28 @@ export async function processAllWaitingApplicants(options = {}) {
   }
 
   const bookLimit = Math.max(1, Math.min(Number(process.env.ESTIMATE_BOOK_LIMIT || 12), 40));
-  const toAssign = planned.slice(0, bookLimit);
+  const buckets = new Map();
+  for (const item of planned) {
+    const category = applicantRequestedCategory(item.applicant) || "_";
+    if (!buckets.has(category)) {
+      buckets.set(category, []);
+    }
+    buckets.get(category).push(item);
+  }
+  const toAssign = [];
+  let added = true;
+  while (toAssign.length < bookLimit && added) {
+    added = false;
+    for (const queue of buckets.values()) {
+      if (toAssign.length >= bookLimit) {
+        break;
+      }
+      if (queue.length > 0) {
+        toAssign.push(queue.shift());
+        added = true;
+      }
+    }
+  }
 
   const assignmentCache = new Map();
   function assignmentFor(schedule) {

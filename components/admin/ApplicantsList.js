@@ -101,23 +101,25 @@ export default function ApplicantsList() {
     }
   }
 
-  async function handleEditCategory(applicant, category) {
-    if (!category) {
+  async function handleEditCategory(applicant, patch) {
+    if (!patch) {
       setEditingId(applicant.id);
       return;
     }
+    const category = String(patch.category || "").trim().toUpperCase();
+    const phone = String(patch.phone || "").trim();
     setEditBusy(true);
     setError("");
     try {
       const payload = await adminFetch(`/api/applicants/${applicant.id}`, {
         method: "POST",
-        body: JSON.stringify({ action: "setCategory", licenseCategory: category })
+        body: JSON.stringify({ action: "setCategory", licenseCategory: category, phone })
       });
       const matched = Number(payload.matched || 0);
       setSuccess(
         matched > 0
-          ? `${applicant.fullName} is now Category ${category}. Live seats found — creating the application.`
-          : `${applicant.fullName} is now Category ${category}. Watching Busanza until ${category} seats open.`
+          ? `${applicant.fullName} is Category ${category}. Live ${category} seats found — creating the application.`
+          : `${applicant.fullName} updated. Watching Busanza for Category ${category} seats.`
       );
       setEditingId(null);
       await loadApplicants();

@@ -140,7 +140,7 @@ export default function EstimatePeopleBoard({
                     >
                       {progress.label}
                     </p>
-                    {onEditCategory && editingId !== applicant.id && progress.key !== "created" ? (
+                    {onEditCategory && editingId !== applicant.id ? (
                       <button
                         type="button"
                         onClick={() => onEditCategory(applicant, null)}
@@ -175,7 +175,8 @@ export default function EstimatePeopleBoard({
                     onSubmit={(event) => {
                       event.preventDefault();
                       const category = event.currentTarget.category.value;
-                      onEditCategory(applicant, category);
+                      const phone = event.currentTarget.phone.value;
+                      onEditCategory(applicant, { category, phone });
                     }}
                   >
                     <label className="text-xs font-medium text-slate-700">
@@ -191,6 +192,15 @@ export default function EstimatePeopleBoard({
                           </option>
                         ))}
                       </select>
+                    </label>
+                    <label className="text-xs font-medium text-slate-700">
+                      Phone
+                      <input
+                        name="phone"
+                        type="tel"
+                        defaultValue={applicant.phone || ""}
+                        className="mt-1 block w-40 rounded-lg border border-red-200 px-2 py-1.5 text-sm text-red-950"
+                      />
                     </label>
                     <button
                       type="submit"

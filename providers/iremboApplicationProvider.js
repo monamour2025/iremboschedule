@@ -791,6 +791,9 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
         liveRow: candidate.schedule
       });
     }
+    if (byId.size > 0) {
+      break;
+    }
   }
 
   return [...byId.values()];
