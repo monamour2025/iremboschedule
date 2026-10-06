@@ -66,8 +66,10 @@ function buildAxiosError(error, label) {
 
 async function buildHeaders(extra = {}) {
   const sessionHeaders = await getIremboSessionHeaders();
+  const keys = getEncryptionKeys();
   return {
     ...sessionHeaders,
+    RPK: keys.publicKeyB64,
     ...extra
   };
 }
@@ -550,7 +552,7 @@ export async function validateDefinitiveLicense(nationalId) {
           { nationalId: normalizedId },
           { "Content-Type": "application/json" },
           "validateDefinitiveLicense",
-          { useProfileSession: true }
+          { useProfileSession: false }
         ),
       { label: "validateDefinitiveLicense", maxRetries: 2, timeoutMs: 30000 }
     ),
@@ -831,7 +833,7 @@ export async function reserveTemporarySlot(examScheduleId, context = {}) {
           null,
           bookingHeaders,
           "reserveTemporarySlot",
-          { useProfileSession: true }
+          { useProfileSession: false }
         ),
       { label: "reserveTemporarySlot", retryIf: (error) => !String(error.message).includes("423"), maxRetries: 2, timeoutMs: 12000 }
     ),
@@ -901,7 +903,7 @@ export async function createDrivingLicenseApplication(input) {
         body,
         { "Content-Type": "application/json", NLS: examLanguage },
         createLabel,
-        { useProfileSession: true }
+        { useProfileSession: false }
       ),
     {
       label: createLabel,
