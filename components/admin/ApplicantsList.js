@@ -156,14 +156,14 @@ export default function ApplicantsList() {
   return (
     <AdminShell
       title="Queue"
-      description="The system watches Irembo for the exact category each person requested — Category B people only get Category B codes."
+      description="When the category you selected has a future open Busanza sitting, the application is created automatically — same path for A, B, B(AT), C, D, D1, E, and F."
       onSecretSaved={() => loadApplicants()}
     >
       <section className="animate-fade-up rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
         <p className="text-sm text-slate-700">
-          Save people on the Estimate list. GitHub scan looks for open Busanza seats. When Category{" "}
-          <span className="font-semibold text-red-800">B</span> is open, only people who requested B are booked.
-          A, C, D sit until their own category opens. Wrong-category seats are never assigned.
+          Save people on the Estimate list and pick their category. When that exact category has a future
+          open sitting at Busanza, the system creates their Irembo application. A people only get A, B
+          only get B, and so on — leftover seats from sittings that already started are ignored.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <p className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-900 ring-1 ring-red-100">

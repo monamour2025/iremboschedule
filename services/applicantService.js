@@ -1456,7 +1456,7 @@ export async function updateApplicant(id, input) {
 export async function changeApplicantCategory(id, input) {
   const payload = typeof input === "string" ? { category: input } : input || {};
   const nextCategory = String(payload.category || payload.licenseCategory || "").trim().toUpperCase();
-  if (!/^[A-Z][0-9]?$/.test(nextCategory)) {
+  if (!/^(?:[A-E](?:1|\(AT\))?|F)$/.test(nextCategory)) {
     const error = new Error("Choose a valid licence category.");
     error.statusCode = 400;
     throw error;
@@ -1545,17 +1545,26 @@ export async function claimWaitingApplicantAssignment(applicantId, assignment) {
     if (scheduleId) {
       const existing = await tx.schedule.findUnique({
         where: { scheduleId },
-        select: { scheduleId: true }
+        select: { scheduleId: true, remainingCapacity: true }
       });
       if (existing) {
+        const liveRemaining = Number(assignment.remainingCapacity);
+        if (Number(existing.remainingCapacity || 0) <= 0 && liveRemaining > 0) {
+          await tx.schedule.update({
+            where: { scheduleId },
+            data: { remainingCapacity: liveRemaining }
+          });
+        }
         const seat = await tx.schedule.updateMany({
           where: { scheduleId, remainingCapacity: { gt: 0 } },
           data: { remainingCapacity: { decrement: 1 } }
         });
-        if (seat.count === 0) {
+        if (seat.count === 0 && !(liveRemaining > 0)) {
           return null;
         }
-        decrementedLocalSeat = true;
+        if (seat.count > 0) {
+          decrementedLocalSeat = true;
+        }
       }
     }
 

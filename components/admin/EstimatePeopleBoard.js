@@ -28,6 +28,7 @@ export function estimateProgress(applicant) {
     };
   }
   if (
+    status === "PENDING" ||
     status === "RESERVING_SLOT" ||
     status === "SLOT_RESERVED" ||
     status === "LICENSE_VALIDATED" ||
@@ -35,7 +36,7 @@ export function estimateProgress(applicant) {
   ) {
     return { step: 2, key: "creating", label: "Creating application", detail: "Seats found — submitting to Irembo" };
   }
-  if (status === "WAITING_FOR_SLOT" || status === "PENDING" || status === "SAVED") {
+  if (status === "WAITING_FOR_SLOT" || status === "SAVED") {
     return { step: 2, key: "waiting", label: "Waiting for slot", detail: "Watching Busanza for this category" };
   }
   if (applicant?.entityId) {
@@ -84,7 +85,7 @@ export default function EstimatePeopleBoard({
   title = "Queue",
   description,
   emptyMessage = "No one in the queue yet. Add people on the Estimate list.",
-  categoryOptions = ["A", "A1", "B", "B1", "C", "D", "D1"]
+  categoryOptions = ["A", "A1", "B", "B(AT)", "B1", "C", "D", "D1", "E", "F"]
 }) {
   const people = Array.isArray(applicants) ? applicants : [];
 

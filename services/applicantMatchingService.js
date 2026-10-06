@@ -120,7 +120,8 @@ export async function resolveBookableAssignment(schedule, options = {}) {
       examTime: formatExamTime(schedule.startDateTime) || examTime,
       locationName: location,
       assignedScheduleId: schedule.scheduleId,
-      amount: Number(schedule.amount)
+      amount: Number(schedule.amount),
+      remainingCapacity: Number(schedule.remainingCapacity)
     };
   }
 
@@ -166,7 +167,8 @@ export async function resolveBookableAssignment(schedule, options = {}) {
     examTime: live.examTime || examTime,
     locationName: location,
     assignedScheduleId: schedule.scheduleId,
-    amount
+    amount,
+    remainingCapacity: Number(live.remainingCapacity || schedule.remainingCapacity || 0)
   };
 }
 
@@ -338,7 +340,7 @@ export async function processAllWaitingApplicants(options = {}) {
     const liveSlots = await listLiveOpenSlotsForCategory(
       category,
       openSchedules.map((schedule) => schedule.startDateTime),
-      { maxDays: onlyIds ? 3 : 7 }
+      { maxDays: onlyIds ? 7 : 14, stopOnFirst: false }
     );
     liveByCategory.set(category, liveSlots);
   });
@@ -389,7 +391,7 @@ export async function processAllWaitingApplicants(options = {}) {
     planned.push({ applicant, schedule: nearest });
   }
 
-  const bookLimit = Math.max(1, Math.min(Number(process.env.ESTIMATE_BOOK_LIMIT || 12), 40));
+  const bookLimit = Math.max(1, Math.min(Number(process.env.ESTIMATE_BOOK_LIMIT || 24), 40));
   const buckets = new Map();
   for (const item of planned) {
     const category = applicantRequestedCategory(item.applicant) || "_";
