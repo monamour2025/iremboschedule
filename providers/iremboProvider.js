@@ -257,9 +257,6 @@ function keepNormalizedSchedule(schedule, scanLocation) {
   if (!extractLicenseCategoryToken(schedule.category)) {
     return false;
   }
-  if (!(Number(schedule.remainingCapacity) > 0)) {
-    return false;
-  }
   if (!isUpcomingSchedule(schedule)) {
     return false;
   }

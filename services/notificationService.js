@@ -36,7 +36,8 @@ function isNotifiableChange(change, schedule) {
     return false;
   }
 
-  return ["NEW_SCHEDULE", "CAPACITY_INCREASE"].includes(change.type);
+  // A sitting appearing on the calendar is not a slot. Email only when seats open.
+  return change.type === "CAPACITY_INCREASE" && Number(schedule.remainingCapacity) > 0;
 }
 
 async function persistNotificationResults({ scheduleId, type, title, message, schedule, results, ruleId = null }) {

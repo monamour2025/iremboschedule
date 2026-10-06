@@ -108,21 +108,27 @@ export async function runScan(options = {}) {
     timeout: 180000
   });
 
-  const openSeats = latestSchedules.filter(
-    (schedule) => Number(schedule.remainingCapacity) > 0 && schedule.startDateTime && new Date(schedule.startDateTime) > new Date()
+  const watchedSchedules = latestSchedules.filter(
+    (schedule) => schedule.startDateTime && new Date(schedule.startDateTime) > new Date()
   );
+  const openSeats = watchedSchedules.filter((schedule) => Number(schedule.remainingCapacity) > 0);
+
+  logger.info("Watching detected schedules for live slots", {
+    watchedScheduleCount: watchedSchedules.length,
+    schedulesWithListedCapacity: openSeats.length
+  });
 
   let assignments = [];
-  if (openSeats.length > 0) {
-    logger.info("Open Busanza seats detected; creating applications now", {
-      openScheduleCount: openSeats.length,
-      openSeats: openSeats.reduce((sum, schedule) => sum + Number(schedule.remainingCapacity || 0), 0)
-    });
-    try {
-      assignments = await processAllWaitingApplicants();
-    } catch (error) {
-      logger.error("Applicant auto-matching failed after scan", { message: error.message });
-    }
+  try {
+    assignments = await processAllWaitingApplicants();
+  } catch (error) {
+    logger.error("Live slot search / application create failed after scan", { message: error.message });
+  }
+
+  if (assignments.length > 0) {
+    logger.info("Live slots were available; applications queued", { count: assignments.length });
+  } else {
+    logger.info("Schedules are being watched; no live bookable slots yet");
   }
 
   prepareNotifications(changes, latestSchedules).catch((error) => {
@@ -149,14 +155,15 @@ export async function runScan(options = {}) {
     failedLocations: scanMeta.failedLocations,
     changes,
     assignments,
-    bookedAfterScan: openSeats.length > 0
+    bookedAfterScan: assignments.length > 0,
+    liveSlotSearchDone: true
   };
 }
 
 export async function purgeExpiredAndClosedSchedules(now = new Date(), client = prisma) {
   await client.schedule.deleteMany({
     where: {
-      OR: [{ startDateTime: { lte: now } }, { startDateTime: null }, { remainingCapacity: { lte: 0 } }]
+      OR: [{ startDateTime: { lte: now } }, { startDateTime: null }]
     }
   });
 }
