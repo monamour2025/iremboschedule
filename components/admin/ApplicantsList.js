@@ -85,7 +85,7 @@ export default function ApplicantsList() {
     return applicants.filter((row) => requestedCategory(row) === categoryFilter);
   }, [applicants, categoryFilter]);
 
-  const waitingCount = applicants.filter((row) => estimateProgress(row).key === "waiting").length;
+  const waitingCount = applicants.filter((row) => estimateProgress(row).key !== "created").length;
   const createdCount = applicants.filter((row) => estimateProgress(row).key === "created").length;
 
   async function handleResumeAll() {

@@ -1871,10 +1871,66 @@ export async function listWaitingApplicants() {
   });
 }
 
+export async function returnUncreatedQueuePeopleToWaiting() {
+  await ensureDatabaseSchema();
+  assertAutomationModels();
+
+  const createdStatuses = ["APPLICATION_CREATED", "COMPLETED", "PAYMENT_PENDING", "PAID"];
+  await prisma.applicant.updateMany({
+    where: {
+      searchPaused: true,
+      status: { notIn: createdStatuses }
+    },
+    data: {
+      searchPaused: false,
+      lastError: "Watching Busanza for the requested category."
+    }
+  });
+
+  const codedApps = await prisma.application.findMany({
+    where: {
+      AND: [{ applicationNumber: { not: null } }, { applicationNumber: { not: "" } }],
+      NOT: { status: { in: ["WRONG_CATEGORY_RETURNED", "CATEGORY_CHANGED", "FAILED"] } }
+    },
+    select: { applicantId: true }
+  });
+  const hasLiveCode = new Set(codedApps.map((row) => row.applicantId));
+
+  const rows = await prisma.applicant.findMany({
+    where: { status: { notIn: createdStatuses } },
+    select: { id: true, status: true, updatedAt: true }
+  });
+
+  const inflight = new Set([
+    "PENDING",
+    "RESERVING_SLOT",
+    "SLOT_RESERVED",
+    "LICENSE_VALIDATED",
+    "RUNNING"
+  ]);
+  const recentMs = 2 * 60 * 1000;
+  let returned = 0;
+  for (const row of rows) {
+    if (hasLiveCode.has(row.id)) {
+      continue;
+    }
+    if (inflight.has(row.status) && Date.now() - new Date(row.updatedAt).getTime() < recentMs) {
+      continue;
+    }
+    if (row.status === "WAITING_FOR_SLOT") {
+      continue;
+    }
+    await clearApplicantAssignment(row.id, "Watching Busanza for the requested category.");
+    returned += 1;
+  }
+  return { returned };
+}
+
 export async function recoverFailedSlotBookings(options = {}) {
   const includeInFlight = options.includeInFlight !== false;
   await ensureDatabaseSchema();
   assertAutomationModels();
+  await returnUncreatedQueuePeopleToWaiting();
   const { isIremboAlreadyRegisteredMessage, isIremboSlotUnavailableMessage } = await import(
     "../lib/iremboSlotErrors.js"
   );
@@ -1982,18 +2038,18 @@ export async function listApplicants(options = {}) {
         status: "PENDING",
         batch: { status: "DRAFT" }
       },
-      data: {
-        status: "SAVED",
-        matchedExamScheduleId: null,
-        lastError: null
-      }
+    data: {
+      status: "WAITING_FOR_SLOT",
+      matchedExamScheduleId: null,
+      lastError: "Watching Busanza for the requested category."
+    }
     });
 
     await prisma.applicant.updateMany({
       where: { status: "FETCHING_PROFILE" },
       data: {
-        status: "FAILED_LOOKUP",
-        lastError: "Profile was not verified at save time. Remove this applicant and add again."
+        status: "WAITING_FOR_SLOT",
+        lastError: "Watching Busanza for the requested category."
       }
     });
   }
