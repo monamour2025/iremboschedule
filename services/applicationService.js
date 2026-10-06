@@ -75,6 +75,18 @@ function parseResponseData(value) {
 }
 
 function applicantStatusForPayment(paymentStatus, currentApplicantStatus) {
+  const searching = [
+    "WAITING_FOR_SLOT",
+    "SAVED",
+    "PENDING",
+    "RESERVING_SLOT",
+    "SLOT_RESERVED",
+    "LICENSE_VALIDATED",
+    "RUNNING"
+  ];
+  if (searching.includes(String(currentApplicantStatus || "").toUpperCase())) {
+    return currentApplicantStatus;
+  }
   if (paymentStatus === "PAYMENT_EXPIRED") {
     return "PAYMENT_EXPIRED";
   }
@@ -283,6 +295,9 @@ export async function syncApplicantPaymentStatusesFromIrembo(applicants = []) {
     const appStatus = String(applicant.applications?.[0]?.status || "").toUpperCase();
     const number = applicant.applications?.[0]?.applicationNumber;
     if (!number) {
+      return false;
+    }
+    if (["WRONG_CATEGORY_RETURNED", "CATEGORY_CHANGED"].includes(appStatus)) {
       return false;
     }
     return (

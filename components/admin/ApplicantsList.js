@@ -161,9 +161,10 @@ export default function ApplicantsList() {
     >
       <section className="animate-fade-up rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
         <p className="text-sm text-slate-700">
-          Save people on the Estimate list and pick their category. When that exact category has a future
-          open sitting at Busanza, the system creates their Irembo application. A people only get A, B
-          only get B, and so on — leftover seats from sittings that already started are ignored.
+          Save people on the Estimate list and pick their category. Edit can move someone back (for example
+          NTWARI from B to A). The scanner keeps running. When that exact category has a future open sitting
+          at Busanza, the application is created. Category A is booked alongside the others — A seats are
+          not skipped for B.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <p className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-900 ring-1 ring-red-100">

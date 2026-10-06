@@ -400,11 +400,28 @@ export async function processAllWaitingApplicants(options = {}) {
     }
     buckets.get(category).push(item);
   }
+  const categoryOrder = [...buckets.keys()].sort((left, right) => {
+    if (left === "A" && right !== "A") {
+      return -1;
+    }
+    if (right === "A" && left !== "A") {
+      return 1;
+    }
+    return left.localeCompare(right);
+  });
   const toAssign = [];
+  const minEach = Math.max(2, Math.floor(bookLimit / Math.max(categoryOrder.length, 1)));
+  for (const category of categoryOrder) {
+    const queue = buckets.get(category) || [];
+    while (queue.length > 0 && toAssign.filter((item) => applicantRequestedCategory(item.applicant) === category).length < minEach && toAssign.length < bookLimit) {
+      toAssign.push(queue.shift());
+    }
+  }
   let added = true;
   while (toAssign.length < bookLimit && added) {
     added = false;
-    for (const queue of buckets.values()) {
+    for (const category of categoryOrder) {
+      const queue = buckets.get(category) || [];
       if (toAssign.length >= bookLimit) {
         break;
       }

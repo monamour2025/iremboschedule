@@ -1462,6 +1462,12 @@ export async function changeApplicantCategory(id, input) {
     throw error;
   }
 
+  const existing = await prisma.applicant.findUnique({
+    where: { id: Number(id) },
+    include: { applications: { orderBy: { createdAt: "desc" }, take: 1 } }
+  });
+  const previousNumber = String(existing?.applications?.[0]?.applicationNumber || "").trim();
+
   const patch = {
     licenseCategory: nextCategory,
     requestedLicenseCategory: nextCategory
@@ -1470,12 +1476,18 @@ export async function changeApplicantCategory(id, input) {
     patch.phone = String(payload.phone).trim();
   }
   await updateApplicant(id, patch);
+  await prisma.application.updateMany({
+    where: { applicantId: Number(id) },
+    data: { status: "WRONG_CATEGORY_RETURNED" }
+  });
   await prisma.applicant.update({
     where: { id: Number(id) },
     data: {
       searchPaused: false,
       status: "WAITING_FOR_SLOT",
-      lastError: `Watching Busanza for Category ${nextCategory} seats.`,
+      lastError: previousNumber
+        ? `Watching Busanza for Category ${nextCategory}. Do not pay previous code ${previousNumber} — cancel it on Irembo if needed.`
+        : `Watching Busanza for Category ${nextCategory} seats.`,
       assignedScheduleId: null,
       matchedExamScheduleId: null,
       examDate: null,
