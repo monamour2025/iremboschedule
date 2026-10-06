@@ -11,7 +11,7 @@ import {
   getMonitoredLocations
 } from "../providers/iremboProvider.js";
 import { prepareNotifications } from "./notificationService.js";
-import { processDetectedSchedulesForApplicants, processAllWaitingApplicants } from "./applicantMatchingService.js";
+import { processAllWaitingApplicants } from "./applicantMatchingService.js";
 import { scheduleMatchesCategory, isOpenUpcomingSchedule } from "../lib/scheduleTime.js";
 
 const scheduleSelect = {
@@ -108,22 +108,32 @@ export async function runScan(options = {}) {
     timeout: 180000
   });
 
+  const openSeats = latestSchedules.filter(
+    (schedule) => Number(schedule.remainingCapacity) > 0 && schedule.startDateTime && new Date(schedule.startDateTime) > new Date()
+  );
+
+  let assignments = [];
+  if (openSeats.length > 0) {
+    logger.info("Open Busanza seats detected; creating applications now", {
+      openScheduleCount: openSeats.length,
+      openSeats: openSeats.reduce((sum, schedule) => sum + Number(schedule.remainingCapacity || 0), 0)
+    });
+    try {
+      assignments = await processAllWaitingApplicants();
+    } catch (error) {
+      logger.error("Applicant auto-matching failed after scan", { message: error.message });
+    }
+  }
+
   prepareNotifications(changes, latestSchedules).catch((error) => {
     logger.error("Notification dispatch failed after scan", { message: error.message });
-  });
-
-  processDetectedSchedulesForApplicants(changes, latestSchedules).catch((error) => {
-    logger.error("Applicant auto-matching failed after scan", { message: error.message });
-  });
-
-  processAllWaitingApplicants().catch((error) => {
-    logger.error("Waiting applicant matching failed after scan", { message: error.message });
   });
 
   logger.info("Finished schedule scan", {
     snapshotId: snapshot.id,
     scheduleCount: latestSchedules.length,
     changeCount: changes.length,
+    assignmentCount: assignments.length,
     scannedLocationCount: scanMeta.scannedLocations.length,
     failedLocationCount: scanMeta.failedLocations.length
   });
@@ -137,7 +147,9 @@ export async function runScan(options = {}) {
     scannedLocationCount: scanMeta.scannedLocations.length,
     failedLocationCount: scanMeta.failedLocations.length,
     failedLocations: scanMeta.failedLocations,
-    changes
+    changes,
+    assignments,
+    bookedAfterScan: openSeats.length > 0
   };
 }
 
