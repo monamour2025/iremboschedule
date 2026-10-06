@@ -10,33 +10,33 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const { runAutomationTick } = await import("../lib/automationTick.js");
+const { hasIremboCitizenCredentials, ensureIremboCitizenAuth } = await import("../lib/iremboCitizenAuth.js");
 const { prisma } = await import("../lib/db.js");
-const { getIremboCookieHealth } = await import("../lib/iremboBrowserSession.js");
-const { hasIremboCitizenCredentials } = await import("../lib/iremboCitizenAuth.js");
 
 try {
-  const cookieHealth = getIremboCookieHealth();
-  if (!cookieHealth.present && !hasIremboCitizenCredentials()) {
+  if (!hasIremboCitizenCredentials()) {
     console.error(
-      "IREMBO_CITIZEN_COOKIE is missing. Log in on irembo.gov.rw, copy the Cookie header from an irembo/rest request, and save it as the GitHub secret IREMBO_CITIZEN_COOKIE."
+      "Set GitHub secrets IREMBO_USERNAME and IREMBO_PASSWORD (your Irembo phone/email and password). The scanner uses the Irembo API login, not a browser cookie."
     );
     process.exit(1);
   }
-  if (cookieHealth.present && cookieHealth.expired) {
+
+  try {
+    await ensureIremboCitizenAuth(true);
+  } catch (error) {
     console.error(
       JSON.stringify({
         ok: false,
-        error: "IREMBO_CITIZEN_COOKIE expired. Irembo login lasts about one day. Update the GitHub secret with a fresh Cookie from a logged-in irembo.gov.rw tab, then run Scheduled Scan again.",
-        expiresAt: cookieHealth.expiresAt
+        error: `Irembo API login failed: ${error.message}. Check IREMBO_USERNAME and IREMBO_PASSWORD. If Irembo asks for an SMS code, set IREMBO_OTP once then run again.`
       })
     );
     process.exit(1);
   }
 
   const { resumeApplicantSearch } = await import("../services/applicantService.js");
+  const { runAutomationTick } = await import("../lib/automationTick.js");
   const resumed = await resumeApplicantSearch();
-  const result = await runAutomationTick({ includeScan: false, cronScan: false, force: true });
+  const result = await runAutomationTick({ includeScan: true, cronScan: true, force: true });
   console.log(
     JSON.stringify({
       ok: true,

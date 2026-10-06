@@ -1,5 +1,6 @@
 import axios from "axios";
 import { getRuntimeIremboCookie } from "../lib/iremboBrowserSession.js";
+import { getIremboCitizenAuthHeaders } from "../lib/iremboCitizenAuth.js";
 import { applyIremboResponseCookies, mergeCookieString, warmIremboSession } from "../lib/iremboSession.js";
 import crypto from "node:crypto";
 import { logger } from "../lib/logger.js";
@@ -337,8 +338,10 @@ async function ensureSession() {
 export async function getIremboSessionHeaders() {
   await ensureSession();
   const cookie = mergeCookieString(getRuntimeIremboCookie() || sessionCookie);
+  const authHeaders = await getIremboCitizenAuthHeaders();
   return {
     ...defaultRequestHeaders(),
+    ...authHeaders,
     ...(cookie ? { Cookie: cookie } : {})
   };
 }

@@ -3,7 +3,7 @@
 #
 # Required GitHub secrets (copy from Vercel / local .env):
 #   DATABASE_URL, ENCRYPTION_KEY, AUTOMATION_MODE
-# Optional but needed to book: IREMBO_CITIZEN_COOKIE or IREMBO_USERNAME + IREMBO_PASSWORD
+# Required to create codes: IREMBO_USERNAME + IREMBO_PASSWORD (Irembo API login)
 # Optional SMS/email: RESEND_API_KEY, RESEND_FROM, ALERT_EMAIL
 
 name: Scheduled Scan
@@ -31,7 +31,6 @@ jobs:
       ESTIMATE_MATCH_CONCURRENCY: "8"
       ESTIMATE_BOOK_LIMIT: "12"
       IREMBO_EXPAND_TIME_SLOTS: "false"
-      IREMBO_CITIZEN_COOKIE: ${{ secrets.IREMBO_CITIZEN_COOKIE }}
       IREMBO_USERNAME: ${{ secrets.IREMBO_USERNAME }}
       IREMBO_PASSWORD: ${{ secrets.IREMBO_PASSWORD }}
       IREMBO_OTP: ${{ secrets.IREMBO_OTP }}
@@ -59,8 +58,8 @@ jobs:
             echo "::error::Add GitHub secret ENCRYPTION_KEY (same as Vercel)."
             exit 1
           fi
-          if [ -z "${IREMBO_CITIZEN_COOKIE:-}" ] && [ -z "${IREMBO_USERNAME:-}" ]; then
-            echo "::error::Add GitHub secret IREMBO_CITIZEN_COOKIE (Cookie header from a logged-in irembo.gov.rw tab)."
+          if [ -z "${IREMBO_USERNAME:-}" ] || [ -z "${IREMBO_PASSWORD:-}" ]; then
+            echo "::error::Add GitHub secrets IREMBO_USERNAME and IREMBO_PASSWORD (your Irembo login). Cookie login is not used."
             exit 1
           fi
       - run: pnpm install --frozen-lockfile
