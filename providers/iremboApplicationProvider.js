@@ -680,10 +680,14 @@ async function listLiveScheduleCandidates({
           });
           continue;
         }
+        const resolvedExamDate = parseIremboLocalDateTime(selectedDate, resolvedTime);
+        if (!resolvedExamDate || resolvedExamDate.getTime() <= Date.now()) {
+          continue;
+        }
         candidates.push({
           examScheduleId: bookableId,
           examCenter: SYSTEM_EXAM_CENTER,
-          examDate: parseIremboLocalDateTime(selectedDate, resolvedTime),
+          examDate: resolvedExamDate,
           examTime: resolvedTime,
           schedule: row,
           testCenter,
@@ -705,13 +709,22 @@ export async function findExamSchedule({
   examTime,
   location
 }) {
-  const candidates = await listLiveScheduleCandidates({
+  let candidates = await listLiveScheduleCandidates({
     licenseCategory,
     location: SYSTEM_EXAM_LOCATION,
     examCenter: SYSTEM_EXAM_CENTER,
     examDate,
     examTime
   });
+  if ((!candidates || candidates.length === 0) && examTime) {
+    candidates = await listLiveScheduleCandidates({
+      licenseCategory,
+      location: SYSTEM_EXAM_LOCATION,
+      examCenter: SYSTEM_EXAM_CENTER,
+      examDate,
+      examTime: ""
+    });
+  }
 
   const match =
     candidates
@@ -786,13 +799,14 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
         center: SYSTEM_EXAM_CENTER,
         location: SYSTEM_EXAM_LOCATION,
         startDateTime: candidate.examDate,
+        examTime: candidate.examTime,
         remainingCapacity: candidate.remainingCapacity,
         examScheduleId: candidate.examScheduleId,
         amount: candidate.amount,
         liveRow: candidate.schedule
       });
     }
-    if (byId.size > 0) {
+    if (byId.size > 0 && options.stopOnFirst !== false) {
       break;
     }
   }
@@ -957,10 +971,14 @@ export async function createDrivingLicenseApplication(input) {
 }
 
 export function buildExamScheduleDate(examDate, examTime) {
-  const date = new Date(examDate);
-  const [hours = "0", minutes = "0"] = String(examTime).split(":");
-  date.setUTCHours(Number(hours), Number(minutes), 0, 0);
-  return date.toISOString();
+  const fromParts = parseIremboLocalDateTime(
+    formatScheduleDateLocal(examDate),
+    String(examTime || formatScheduleTimeLocal(examDate) || "").slice(0, 5)
+  );
+  if (fromParts) {
+    return fromParts.toISOString();
+  }
+  return new Date(examDate).toISOString();
 }
 
 const PUBLIC_REQUEST_BASE =

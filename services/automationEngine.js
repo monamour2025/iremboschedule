@@ -4,9 +4,15 @@ import { withApplicantAutomationLock, markApplicantRateLimited, shouldDeferAutom
 import { isApplicantHeldForBatch } from "../lib/bulkAutomationHold.js";
 import { appendFailedScheduleId } from "../lib/failedSchedules.js";
 import { extractIremboApplicationNumber } from "../lib/iremboApplicationNumbers.js";
+import { isIremboAlreadyRegisteredMessage, isIremboSlotUnavailableMessage } from "../lib/iremboSlotErrors.js";
 import { extractRawScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch, isSystemExamCenter, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
-import { liveIremboRowMatchesCategory, liveRowHasOpenSeats } from "../lib/scheduleTime.js";
+import {
+  formatScheduleDateLocal,
+  liveIremboRowMatchesCategory,
+  liveRowHasOpenSeats,
+  parseIremboLocalDateTime
+} from "../lib/scheduleTime.js";
 import {
   buildExamScheduleDate,
   createDrivingLicenseApplication,
@@ -14,6 +20,7 @@ import {
   findExamSchedule,
   getCitizenProfile,
   listBookableSchedulesForApplicant,
+  listLiveOpenSlotsForCategory,
   reserveTemporarySlot,
   SUPPLEMENTARY_SERVICE_CODE,
   validateDefinitiveLicense
@@ -183,6 +190,16 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     ) {
       return null;
     }
+    const slotStart =
+      candidate.examDate instanceof Date && !Number.isNaN(candidate.examDate.getTime())
+        ? candidate.examDate
+        : parseIremboLocalDateTime(
+            formatScheduleDateLocal(candidate.examDate),
+            String(candidate.examTime || "").slice(0, 5)
+          );
+    if (!slotStart || slotStart.getTime() <= Date.now()) {
+      return null;
+    }
 
     const preferredCenter = SYSTEM_EXAM_CENTER;
     if (candidate.examCenter && !isSystemExamCenter(candidate.examCenter)) {
@@ -214,11 +231,11 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
       });
       return null;
     }
-    const assignedTime = String(assignedSchedule.examTime || candidate.examTime || "").trim();
+    const preferredTime = String(applicantRecord.preferredExamTime || "").trim();
     if (
-      assignedTime &&
+      preferredTime &&
       candidate.examTime &&
-      String(candidate.examTime).trim() !== assignedTime
+      String(candidate.examTime).trim() !== preferredTime
     ) {
       return null;
     }
@@ -244,8 +261,8 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
         examScheduleId: candidate.examScheduleId,
         temporaryBookingId,
         examCenter: candidate.examCenter || assignedSchedule.examCenter,
-        examDate: candidate.examDate || assignedSchedule.examDate,
-        examTime: candidate.examTime || assignedSchedule.examTime,
+        examDate: candidate.examDate || slotStart,
+        examTime: candidate.examTime,
         locationName: candidate.locationName || candidate.schedule?.locationName || applicantRecord.preferredLocation,
         amount
       };
@@ -261,7 +278,16 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     }
   }
 
+  const assignedStart = parseIremboLocalDateTime(
+    formatScheduleDateLocal(assignedSchedule.examDate),
+    String(assignedSchedule.examTime || "").slice(0, 5)
+  );
+  const assignedIsUpcoming = assignedStart && assignedStart.getTime() > Date.now();
+
   try {
+    if (!assignedIsUpcoming) {
+      throw new Error("Assigned exam time is already in the past");
+    }
     const liveAssigned = await findExamSchedule({
       licenseCategory: resolveAutomationLicenseCategory(applicantRecord),
       examCenter: assignedSchedule.examCenter,
@@ -272,8 +298,8 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     const resolved = await attemptReserve({
       examScheduleId: liveAssigned.examScheduleId,
       examCenter: assignedSchedule.examCenter,
-      examDate: assignedSchedule.examDate,
-      examTime: assignedSchedule.examTime,
+      examDate: liveAssigned.examDate,
+      examTime: liveAssigned.examTime,
       locationName: liveAssigned.locationName,
       amount: liveAssigned.amount,
       schedule: liveAssigned.schedule
@@ -284,6 +310,34 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
   } catch (error) {
     lastError = error;
     logger.warn("Assigned slot live resolution failed", {
+      applicantId: applicantRecord.id,
+      message: error.message
+    });
+  }
+
+  try {
+    const liveSlots = await listLiveOpenSlotsForCategory(
+      resolveAutomationLicenseCategory(applicantRecord),
+      [],
+      { maxDays: 7, stopOnFirst: true }
+    );
+    for (const slot of liveSlots.slice(0, 8)) {
+      const booked = await attemptReserve({
+        examScheduleId: slot.examScheduleId,
+        examCenter: slot.center,
+        examDate: slot.startDateTime,
+        examTime: slot.examTime,
+        locationName: slot.location,
+        amount: slot.amount,
+        schedule: slot.liveRow
+      });
+      if (booked) {
+        return booked;
+      }
+    }
+  } catch (error) {
+    lastError = error;
+    logger.warn("Live category seat reserve failed", {
       applicantId: applicantRecord.id,
       message: error.message
     });
@@ -398,13 +452,9 @@ export async function runApplicantAutomation(applicantId) {
         failedScheduleIds
       );
 
-      if (!isSystemExamCenter(booking.examCenter) ||
-        (booking.examTime &&
-          assignedSchedule.examTime &&
-          String(booking.examTime).trim() !== String(assignedSchedule.examTime).trim())
-      ) {
+      if (!isSystemExamCenter(booking.examCenter)) {
         throw new Error(
-          `Irembo offered ${booking.examCenter || "a different site"} at ${booking.examTime || "a different time"}, which is not the locked ${SYSTEM_EXAM_CENTER} slot.`
+          `Irembo offered ${booking.examCenter || "a different site"}, which is not ${SYSTEM_EXAM_CENTER}.`
         );
       }
 

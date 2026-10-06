@@ -257,7 +257,9 @@ export async function processPendingAutomations() {
   await ensureDatabaseSchema();
   await returnEstimateApplicantsIfCategoryHasNoLiveSeats();
   const pending = await prisma.applicant.findMany({
-    where: { status: "PENDING" },
+    where: {
+      status: { in: ["PENDING", "RESERVING_SLOT", "SLOT_RESERVED", "LICENSE_VALIDATED"] }
+    },
     orderBy: { updatedAt: "asc" }
   });
 
@@ -368,7 +370,7 @@ export async function processAllWaitingApplicants(options = {}) {
     }
     const failedScheduleIds = await getFailedScheduleIds(applicant.id);
     const liveSlots = (liveByCategory.get(category) || []).filter(
-      (schedule) => Number(schedule.remainingCapacity) > 0
+      (schedule) => Number(schedule.remainingCapacity) > 0 && isOpenUpcomingSchedule(schedule)
     );
     const candidates = liveSlots.filter((schedule) => {
       if ((seatsLeft.get(schedule.scheduleId) || 0) <= 0) {

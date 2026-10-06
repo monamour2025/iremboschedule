@@ -28,13 +28,14 @@ export function estimateProgress(applicant) {
     };
   }
   if (
-    status === "WAITING_FOR_SLOT" ||
-    status === "PENDING" ||
     status === "RESERVING_SLOT" ||
     status === "SLOT_RESERVED" ||
-    status === "RUNNING" ||
-    status === "SAVED"
+    status === "LICENSE_VALIDATED" ||
+    status === "RUNNING"
   ) {
+    return { step: 2, key: "creating", label: "Creating application", detail: "Seats found — submitting to Irembo" };
+  }
+  if (status === "WAITING_FOR_SLOT" || status === "PENDING" || status === "SAVED") {
     return { step: 2, key: "waiting", label: "Waiting for slot", detail: "Watching Busanza for this category" };
   }
   if (applicant?.entityId) {
