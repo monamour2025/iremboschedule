@@ -59,6 +59,10 @@ jobs:
             echo "::error::Add GitHub secret ENCRYPTION_KEY (same as Vercel)."
             exit 1
           fi
+          if [ -z "${IREMBO_CITIZEN_COOKIE:-}" ] && [ -z "${IREMBO_USERNAME:-}" ]; then
+            echo "::error::Add GitHub secret IREMBO_CITIZEN_COOKIE (Cookie header from a logged-in irembo.gov.rw tab)."
+            exit 1
+          fi
       - run: pnpm install --frozen-lockfile
       - run: pnpm prisma generate
       - name: Scan Irembo and create codes
