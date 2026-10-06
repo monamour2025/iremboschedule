@@ -1968,30 +1968,34 @@ export async function recoverFailedSlotBookings(options = {}) {
   return { recovered, deletedPlaceholders: deleted.count };
 }
 
-export async function listApplicants() {
+export async function listApplicants(options = {}) {
   await ensureDatabaseSchema();
   assertAutomationModels();
-  await repairStuckProfileApplicants().catch(() => 0);
-  await recoverFailedSlotBookings({ includeInFlight: false }).catch(() => ({ recovered: 0 }));
-  await prisma.applicant.updateMany({
-    where: {
-      status: "PENDING",
-      batch: { status: "DRAFT" }
-    },
-    data: {
-      status: "SAVED",
-      matchedExamScheduleId: null,
-      lastError: null
-    }
-  });
+  const live = options.live === true;
 
-  await prisma.applicant.updateMany({
-    where: { status: "FETCHING_PROFILE" },
-    data: {
-      status: "FAILED_LOOKUP",
-      lastError: "Profile was not verified at save time. Remove this applicant and add again."
-    }
-  });
+  if (!live) {
+    await repairStuckProfileApplicants().catch(() => 0);
+    await recoverFailedSlotBookings({ includeInFlight: false }).catch(() => ({ recovered: 0 }));
+    await prisma.applicant.updateMany({
+      where: {
+        status: "PENDING",
+        batch: { status: "DRAFT" }
+      },
+      data: {
+        status: "SAVED",
+        matchedExamScheduleId: null,
+        lastError: null
+      }
+    });
+
+    await prisma.applicant.updateMany({
+      where: { status: "FETCHING_PROFILE" },
+      data: {
+        status: "FAILED_LOOKUP",
+        lastError: "Profile was not verified at save time. Remove this applicant and add again."
+      }
+    });
+  }
 
   const applicants = await prisma.applicant.findMany({
     orderBy: { createdAt: "desc" },
@@ -2004,11 +2008,14 @@ export async function listApplicants() {
     }
   });
 
+  if (live) {
+    return applicants.map((applicant) => serializeApplicant(applicant));
+  }
+
   const enriched = await Promise.all(applicants.map((applicant) => enrichApplicantProvisionalFields(applicant)));
   await repairDuplicateApplicationNumbers(enriched);
   const synced = await Promise.all(enriched.map((applicant) => syncApplicantApplicationSuccess(applicant)));
 
-  // Refresh unpaid codes from Irembo so expired applications are not treated as still active.
   try {
     const { syncApplicantPaymentStatusesFromIrembo } = await import("./applicationService.js");
     await syncApplicantPaymentStatusesFromIrembo(synced);
@@ -2031,10 +2038,9 @@ export async function listApplicants() {
   return synced.map((applicant) => serializeApplicant(byId.get(applicant.id) || applicant));
 }
 
-export async function listAutomationQueueApplicants() {
-  const applicants = await listApplicants();
+export async function listAutomationQueueApplicants(options = {}) {
+  const applicants = await listApplicants(options);
   return applicants.filter((applicant) => {
-    // Draft bulk-list rows stay on the bulk page until Automate Codes is clicked.
     if (applicant.batchStatus === "DRAFT" && applicant.status === "SAVED") {
       return false;
     }

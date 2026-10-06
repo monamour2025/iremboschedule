@@ -331,8 +331,15 @@ export default function Dashboard({
   useEffect(() => {
     mountedRef.current = true;
     refresh({ includeSchedules: true, includeExtras: true });
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) {
+        return;
+      }
+      refresh({ includeSchedules: true, includeExtras: false });
+    }, 5000);
     return () => {
       mountedRef.current = false;
+      clearInterval(timer);
     };
   }, [refresh]);
 

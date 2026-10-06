@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 export async function GET(request) {
   try {
     assertAdminAccess(request);
-    return Response.json({ ok: true, applicants: await listAutomationQueueApplicants() });
+    const live = new URL(request.url).searchParams.get("live") === "1";
+    return Response.json({ ok: true, applicants: await listAutomationQueueApplicants({ live }) });
   } catch (error) {
     logger.error("Applicants list failed", { message: error.message });
     return Response.json(

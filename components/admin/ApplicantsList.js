@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AdminShell from "@/components/admin/AdminShell";
 import EstimatePeopleBoard, { estimateProgress } from "@/components/admin/EstimatePeopleBoard";
@@ -19,14 +19,34 @@ export default function ApplicantsList() {
   const [success, setSuccess] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editBusy, setEditBusy] = useState(false);
+  const editingIdRef = useRef(null);
+  const pollInFlightRef = useRef(false);
+
+  useEffect(() => {
+    editingIdRef.current = editingId;
+  }, [editingId]);
 
   async function loadApplicants(silent = false) {
+    if (silent && pollInFlightRef.current) {
+      return;
+    }
     if (!silent) {
       setLoading(true);
     }
+    pollInFlightRef.current = true;
     try {
-      const payload = await adminFetch("/api/applicants");
-      setApplicants(payload.applicants || []);
+      const payload = await adminFetch(silent ? "/api/applicants?live=1" : "/api/applicants", {
+        timeoutMs: silent ? 15000 : 120000
+      });
+      const next = payload.applicants || [];
+      const keepId = editingIdRef.current;
+      setApplicants((current) => {
+        if (!keepId) {
+          return next;
+        }
+        const editing = current.find((row) => row.id === keepId);
+        return next.map((row) => (row.id === keepId && editing ? editing : row));
+      });
       if (!silent) {
         setError("");
       }
@@ -35,6 +55,7 @@ export default function ApplicantsList() {
         setError(loadError.message);
       }
     } finally {
+      pollInFlightRef.current = false;
       if (!silent) {
         setLoading(false);
       }
@@ -43,7 +64,12 @@ export default function ApplicantsList() {
 
   useEffect(() => {
     loadApplicants();
-    const timer = setInterval(() => loadApplicants(true), 3000);
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) {
+        return;
+      }
+      loadApplicants(true);
+    }, 2500);
     return () => clearInterval(timer);
   }, []);
 

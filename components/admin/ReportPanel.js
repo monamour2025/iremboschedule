@@ -129,22 +129,35 @@ export default function ReportPanel() {
   const [downloading, setDownloading] = useState(false);
   const [view, setView] = useState("successful");
 
-  const loadReport = useCallback(async () => {
-    setLoading(true);
+  const loadReport = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const payload = await adminFetch("/api/admin/report");
       setReport(payload.report);
       setError("");
     } catch (loadError) {
-      setError(loadError.message);
-      setReport(null);
+      if (!silent) {
+        setError(loadError.message);
+        setReport(null);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     loadReport();
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) {
+        return;
+      }
+      loadReport(true);
+    }, 5000);
+    return () => clearInterval(timer);
   }, [loadReport]);
 
   const activeRows = useMemo(() => {
