@@ -7,7 +7,7 @@ import {
   isApplicantAutomationRunning,
   shouldDeferAutomation
 } from "../lib/applicantAutomationLock.js";
-import { getFailedScheduleIds, isScheduleBlocked } from "../lib/failedSchedules.js";
+import { isScheduleBlocked } from "../lib/failedSchedules.js";
 import { extractRawScheduleId, isBookableScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION, systemExamCenterDbWhere } from "../lib/examCenters.js";
 import { findExamSchedule, listLiveOpenSlotsForCategory } from "../providers/iremboApplicationProvider.js";
@@ -337,11 +337,10 @@ export async function processAllWaitingApplicants(options = {}) {
   ];
   const liveByCategory = new Map();
   await mapWithPool(waitingCategories, MATCH_CONCURRENCY, async (category) => {
-    const liveSlots = await listLiveOpenSlotsForCategory(
-      category,
-      openSchedules.map((schedule) => schedule.startDateTime),
-      { maxDays: onlyIds ? 7 : 14, stopOnFirst: false }
-    );
+    const liveSlots = await listLiveOpenSlotsForCategory(category, [], {
+      maxDays: Math.max(1, Math.min(Number(process.env.ESTIMATE_LIVE_MAX_DAYS || 5), 14)),
+      stopOnFirst: process.env.ESTIMATE_LIVE_STOP_ON_FIRST !== "false"
+    });
     liveByCategory.set(category, liveSlots);
   });
 
@@ -364,13 +363,29 @@ export async function processAllWaitingApplicants(options = {}) {
     }
   }
 
+  const failedByApplicant = new Map();
+  if (waiting.length > 0) {
+    const ids = waiting.map((row) => Number(row.id)).filter((id) => Number.isInteger(id));
+    const failedRows = ids.length
+      ? await prisma.$queryRawUnsafe(
+          `SELECT id, "lastFailedScheduleId" FROM "Applicant" WHERE id IN (${ids.join(",")})`
+        )
+      : [];
+    for (const row of failedRows) {
+      failedByApplicant.set(
+        Number(row.id),
+        new Set(String(row.lastFailedScheduleId || "").split(",").map((part) => part.trim()).filter(Boolean))
+      );
+    }
+  }
+
   const planned = [];
   for (const applicant of waiting) {
     const category = applicantRequestedCategory(applicant);
     if (!category) {
       continue;
     }
-    const failedScheduleIds = await getFailedScheduleIds(applicant.id);
+    const failedScheduleIds = failedByApplicant.get(Number(applicant.id)) || new Set();
     const liveSlots = (liveByCategory.get(category) || []).filter(
       (schedule) => Number(schedule.remainingCapacity) > 0 && isOpenUpcomingSchedule(schedule)
     );

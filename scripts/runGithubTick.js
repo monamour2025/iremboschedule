@@ -15,8 +15,25 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const { runAutomationTick } = await import("../lib/automationTick.js");
 const { prisma } = await import("../lib/db.js");
+const { extractLicenseCategoryToken } = await import("../lib/scheduleTime.js");
+
+const waitingCats = await prisma.applicant.findMany({
+  where: { status: "WAITING_FOR_SLOT", searchPaused: false },
+  select: { requestedLicenseCategory: true, licenseCategory: true }
+});
+const categories = [
+  ...new Set(
+    waitingCats
+      .map((row) => extractLicenseCategoryToken(row.requestedLicenseCategory || row.licenseCategory))
+      .filter(Boolean)
+  )
+];
+if (categories.length > 0) {
+  process.env.IREMBO_CATEGORIES = categories.join(",");
+}
+
+const { runAutomationTick } = await import("../lib/automationTick.js");
 
 try {
   const { resumeApplicantSearch } = await import("../services/applicantService.js");

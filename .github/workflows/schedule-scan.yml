@@ -18,18 +18,21 @@ concurrency:
 
 jobs:
   scan:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
       ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
       AUTOMATION_MODE: ${{ secrets.AUTOMATION_MODE }}
       AUTOMATION_INLINE: "1"
-      AUTOMATION_CONCURRENCY: "6"
-      ESTIMATE_MATCH_CONCURRENCY: "8"
-      ESTIMATE_BOOK_LIMIT: "24"
+      AUTOMATION_CONCURRENCY: "4"
+      ESTIMATE_MATCH_CONCURRENCY: "4"
+      ESTIMATE_BOOK_LIMIT: "8"
+      ESTIMATE_LIVE_MAX_DAYS: "5"
+      ESTIMATE_LIVE_STOP_ON_FIRST: "true"
       IREMBO_EXPAND_TIME_SLOTS: "false"
+      IREMBO_MAX_PAGES: "2"
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       RESEND_FROM: ${{ secrets.RESEND_FROM }}
       ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}

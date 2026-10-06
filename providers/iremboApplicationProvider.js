@@ -643,20 +643,10 @@ async function listLiveScheduleCandidates({
           continue;
         }
         if (!liveIremboRowMatchesCategory(row, licenseCategory)) {
-          logger.warn("Skipping live Irembo row with a different licence category", {
-            requestedCategory: licenseCategory,
-            rowCategory: row.categoryOrLane || row.category || row.licenseCategory || null,
-            examScheduleId: bookableId
-          });
           continue;
         }
 
         if (!liveRowHasOpenSeats(row)) {
-          logger.info("Skipping live Irembo row with no remaining seats", {
-            requestedCategory: licenseCategory,
-            examScheduleId: bookableId,
-            remainingCapacity: liveRowRemainingCapacity(row)
-          });
           continue;
         }
 
@@ -762,19 +752,12 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
     return [];
   }
 
-  const maxDays = Math.max(1, Math.min(Number(options.maxDays || 14), 14));
-  const kigaliToday = formatScheduleDateLocal(new Date());
+  const maxDays = Math.max(1, Math.min(Number(options.maxDays || 5), 14));
   const upcomingDates = [];
   for (let day = 0; day < maxDays; day += 1) {
     upcomingDates.push(formatScheduleDateLocal(new Date(Date.now() + day * 24 * 60 * 60 * 1000)));
   }
-  const dates = [
-    ...new Set([
-      kigaliToday,
-      ...upcomingDates,
-      ...dateHints.map((value) => formatScheduleDateLocal(value)).filter(Boolean)
-    ])
-  ];
+  const dates = [...new Set(upcomingDates)];
 
   const byId = new Map();
   for (const selectedDate of dates) {
