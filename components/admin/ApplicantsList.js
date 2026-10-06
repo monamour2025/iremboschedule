@@ -17,6 +17,8 @@ export default function ApplicantsList() {
   const [holdBusy, setHoldBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editBusy, setEditBusy] = useState(false);
 
   async function loadApplicants(silent = false) {
     if (!silent) {
@@ -99,6 +101,33 @@ export default function ApplicantsList() {
     }
   }
 
+  async function handleEditCategory(applicant, category) {
+    if (!category) {
+      setEditingId(applicant.id);
+      return;
+    }
+    setEditBusy(true);
+    setError("");
+    try {
+      const payload = await adminFetch(`/api/applicants/${applicant.id}`, {
+        method: "POST",
+        body: JSON.stringify({ action: "setCategory", licenseCategory: category })
+      });
+      const matched = Number(payload.matched || 0);
+      setSuccess(
+        matched > 0
+          ? `${applicant.fullName} is now Category ${category}. Live seats found — creating the application.`
+          : `${applicant.fullName} is now Category ${category}. Watching Busanza until ${category} seats open.`
+      );
+      setEditingId(null);
+      await loadApplicants();
+    } catch (editError) {
+      setError(editError.message);
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   async function handleRemove(applicant) {
     if (!window.confirm(`Remove ${applicant.fullName} from the queue?`)) {
       return;
@@ -134,9 +163,9 @@ export default function ApplicantsList() {
           </p>
           <Link
             href="/admin/bulk"
-            className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-50"
+            className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
           >
-            Add people
+            Add
           </Link>
           <button
             type="button"
@@ -188,11 +217,14 @@ export default function ApplicantsList() {
       <EstimatePeopleBoard
         applicants={visible}
         title="People in queue"
-        description={`${visible.length} shown · progress updates automatically`}
-        emptyMessage="Nobody in this view. Add people on the Estimate list, then come back here."
+        description={`${visible.length} shown · Edit changes category (use B to test) · Delete removes the person`}
+        emptyMessage="Nobody in this view. Click Add, then come back here."
         onRefresh={() => loadApplicants()}
         onRemove={handleRemove}
         onRetry={handleRetry}
+        onEditCategory={editBusy ? undefined : handleEditCategory}
+        editingId={editingId}
+        onCancelEdit={() => setEditingId(null)}
       />
     </AdminShell>
   );

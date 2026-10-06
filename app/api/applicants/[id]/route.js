@@ -9,7 +9,8 @@ import {
   resetApplicantForRetry,
   setApplicantStatus,
   updateApplicant,
-  updateBulkDraftApplicant
+  updateBulkDraftApplicant,
+  changeApplicantCategory
 } from "../../../../services/applicantService.js";
 import { assignScheduleFromMonitor, tryMatchApplicantImmediately } from "../../../../services/applicantMatchingService.js";
 import { enqueueApplicantAutomation } from "../../../../lib/automationQueue.js";
@@ -159,6 +160,16 @@ export async function POST(request, { params }) {
       }
       const matches = await tryMatchApplicantImmediately(params.id);
       return Response.json({ ok: true, matches });
+    }
+    if (body.action === "setCategory") {
+      const applicant = await changeApplicantCategory(params.id, body.licenseCategory);
+      const matches = await tryMatchApplicantImmediately(params.id);
+      return Response.json({
+        ok: true,
+        applicant,
+        matches,
+        matched: Array.isArray(matches) ? matches.length : 0
+      });
     }
     if (body.action === "setEntityId") {
       const entityId = String(body.entityId || "").trim();

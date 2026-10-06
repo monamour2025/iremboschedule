@@ -77,9 +77,13 @@ export default function EstimatePeopleBoard({
   onRefresh,
   onRemove,
   onRetry,
+  onEditCategory,
+  editingId,
+  onCancelEdit,
   title = "Queue",
   description,
-  emptyMessage = "No one in the queue yet. Add people on the Estimate list."
+  emptyMessage = "No one in the queue yet. Add people on the Estimate list.",
+  categoryOptions = ["A", "A1", "B", "B1", "C", "D", "D1"]
 }) {
   const people = Array.isArray(applicants) ? applicants : [];
 
@@ -124,7 +128,7 @@ export default function EstimatePeopleBoard({
                       {applicant.phone ? ` · ${applicant.phone}` : ""}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <p
                       className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ${
                         progress.key === "created"
@@ -136,6 +140,15 @@ export default function EstimatePeopleBoard({
                     >
                       {progress.label}
                     </p>
+                    {onEditCategory && editingId !== applicant.id && progress.key !== "created" ? (
+                      <button
+                        type="button"
+                        onClick={() => onEditCategory(applicant, null)}
+                        className="text-xs font-medium text-red-800 transition hover:text-red-950"
+                      >
+                        Edit
+                      </button>
+                    ) : null}
                     {onRetry && (progress.key === "failed" || progress.key === "paused") ? (
                       <button
                         type="button"
@@ -151,11 +164,51 @@ export default function EstimatePeopleBoard({
                         onClick={() => onRemove(applicant)}
                         className="text-xs text-slate-400 transition hover:text-red-700"
                       >
-                        Remove
+                        Delete
                       </button>
                     ) : null}
                   </div>
                 </div>
+                {onEditCategory && editingId === applicant.id ? (
+                  <form
+                    className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-red-100 bg-white p-3"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const category = event.currentTarget.category.value;
+                      onEditCategory(applicant, category);
+                    }}
+                  >
+                    <label className="text-xs font-medium text-slate-700">
+                      Category
+                      <select
+                        name="category"
+                        defaultValue={String(category).toUpperCase()}
+                        className="mt-1 block rounded-lg border border-red-200 px-2 py-1.5 text-sm text-red-950"
+                      >
+                        {categoryOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white"
+                    >
+                      Save and search
+                    </button>
+                    {onCancelEdit ? (
+                      <button
+                        type="button"
+                        onClick={onCancelEdit}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-800"
+                      >
+                        Cancel
+                      </button>
+                    ) : null}
+                  </form>
+                ) : null}
                 <ol className="mt-4 grid gap-2 sm:grid-cols-3">
                   {[
                     { step: 1, kind: "verified", title: "Verified" },

@@ -1416,6 +1416,9 @@ export async function updateApplicant(id, input) {
   if (input.phone !== undefined) data.phone = input.phone.trim();
   if (input.email !== undefined) data.email = String(input.email || "").trim();
   if (input.licenseCategory !== undefined) data.licenseCategory = input.licenseCategory.trim().toUpperCase();
+  if (input.requestedLicenseCategory !== undefined) {
+    data.requestedLicenseCategory = input.requestedLicenseCategory.trim().toUpperCase();
+  }
   if (input.preferredLocation !== undefined || input.location !== undefined) {
     data.preferredLocation = String(input.preferredLocation || input.location || "").trim();
   }
@@ -1448,6 +1451,33 @@ export async function updateApplicant(id, input) {
   }
 
   return serializeApplicant(applicant);
+}
+
+export async function changeApplicantCategory(id, category) {
+  const nextCategory = String(category || "").trim().toUpperCase();
+  if (!/^[A-Z][0-9]?$/.test(nextCategory)) {
+    const error = new Error("Choose a valid licence category.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await updateApplicant(id, {
+    licenseCategory: nextCategory,
+    requestedLicenseCategory: nextCategory
+  });
+  await prisma.applicant.update({
+    where: { id: Number(id) },
+    data: {
+      searchPaused: false,
+      status: "WAITING_FOR_SLOT",
+      lastError: `Watching Busanza for Category ${nextCategory} seats.`,
+      assignedScheduleId: null,
+      matchedExamScheduleId: null,
+      examDate: null,
+      examTime: ""
+    }
+  });
+  return getApplicantById(id, false);
 }
 
 export async function assignScheduleToApplicant(applicantId, assignment) {
