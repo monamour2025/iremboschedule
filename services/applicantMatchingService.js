@@ -335,7 +335,8 @@ export async function processAllWaitingApplicants(options = {}) {
   await mapWithPool(waitingCategories, MATCH_CONCURRENCY, async (category) => {
     const liveSlots = await listLiveOpenSlotsForCategory(
       category,
-      openSchedules.map((schedule) => schedule.startDateTime)
+      openSchedules.map((schedule) => schedule.startDateTime),
+      { maxDays: onlyIds ? 3 : 7 }
     );
     liveByCategory.set(category, liveSlots);
   });

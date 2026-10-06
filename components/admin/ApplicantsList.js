@@ -43,7 +43,7 @@ export default function ApplicantsList() {
 
   useEffect(() => {
     loadApplicants();
-    const timer = setInterval(() => loadApplicants(true), 8000);
+    const timer = setInterval(() => loadApplicants(true), 3000);
     return () => clearInterval(timer);
   }, []);
 
@@ -115,14 +115,23 @@ export default function ApplicantsList() {
         method: "POST",
         body: JSON.stringify({ action: "setCategory", licenseCategory: category, phone })
       });
+      if (payload.applicant) {
+        setApplicants((current) =>
+          current.map((row) => (row.id === payload.applicant.id ? { ...row, ...payload.applicant } : row))
+        );
+      }
+      const created = ["APPLICATION_CREATED", "COMPLETED", "PAYMENT_PENDING", "PAID"].includes(
+        payload.applicant?.status
+      );
       const matched = Number(payload.matched || 0);
       setSuccess(
-        matched > 0
-          ? `${applicant.fullName} is Category ${category}. Live ${category} seats found — creating the application.`
-          : `${applicant.fullName} updated. Watching Busanza for Category ${category} seats.`
+        created
+          ? `${payload.applicant.fullName}: application ${payload.applicant.applicationNumber || "created"}.`
+          : matched > 0
+            ? `${applicant.fullName}: Category ${category} seats found. Creating the application…`
+            : `${applicant.fullName} is Category ${category}. No live ${category} seats yet — watching.`
       );
       setEditingId(null);
-      await loadApplicants();
     } catch (editError) {
       setError(editError.message);
     } finally {

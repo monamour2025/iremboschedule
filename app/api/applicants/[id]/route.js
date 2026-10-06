@@ -13,11 +13,12 @@ import {
   changeApplicantCategory
 } from "../../../../services/applicantService.js";
 import { assignScheduleFromMonitor, tryMatchApplicantImmediately } from "../../../../services/applicantMatchingService.js";
-import { enqueueApplicantAutomation } from "../../../../lib/automationQueue.js";
+import { enqueueApplicantAutomation, flushInMemoryAutomationQueue } from "../../../../lib/automationQueue.js";
 import { clearApplicantRateLimitCooldown, isProfileRateLimitError } from "../../../../lib/applicantAutomationLock.js";
 import { getProfileLookupBlockedMs } from "../../../../services/entityIdService.js";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function GET(request, { params }) {
   try {
@@ -180,10 +181,13 @@ export async function POST(request, { params }) {
         licenseCategory: body.licenseCategory,
         phone: body.phone
       });
+      process.env.AUTOMATION_INLINE = "1";
       const matches = await tryMatchApplicantImmediately(params.id);
+      await flushInMemoryAutomationQueue();
+      const refreshed = await getApplicantById(params.id, false);
       return Response.json({
         ok: true,
-        applicant,
+        applicant: refreshed || applicant,
         matches,
         matched: Array.isArray(matches) ? matches.length : 0
       });

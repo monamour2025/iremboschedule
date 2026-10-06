@@ -741,7 +741,7 @@ export async function findExamSchedule({
   };
 }
 
-export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = []) {
+export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = [], options = {}) {
   const category = String(licenseCategory || "")
     .trim()
     .toUpperCase();
@@ -749,9 +749,10 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
     return [];
   }
 
+  const maxDays = Math.max(1, Math.min(Number(options.maxDays || 14), 14));
   const kigaliToday = formatScheduleDateLocal(new Date());
   const upcomingDates = [];
-  for (let day = 0; day < 14; day += 1) {
+  for (let day = 0; day < maxDays; day += 1) {
     upcomingDates.push(formatScheduleDateLocal(new Date(Date.now() + day * 24 * 60 * 60 * 1000)));
   }
   const dates = [
