@@ -18,7 +18,7 @@ import {
 import { logAutomationEvent } from "./automationLogService.js";
 import { cacheEntityId, tryResolveEntityIdForExistingLicense, getCachedEntityId } from "./entityIdService.js";
 import { logger } from "../lib/logger.js";
-import { hashNationalId } from "../lib/encryption.js";
+import { extractLicenseCategoryToken } from "../lib/scheduleTime.js";
 import {
   nationalIdValidationMessage,
   normalizeNationalIdInput,
@@ -245,7 +245,7 @@ export function isProvisionalLicenceValidationError(message) {
 }
 
 export function resolveAutomationLicenseCategory(applicant) {
-  return applicant.requestedLicenseCategory || applicant.licenseCategory;
+  return extractLicenseCategoryToken(applicant.requestedLicenseCategory || applicant.licenseCategory);
 }
 
 export function resolveAutomationLicenseNumber(applicant) {
