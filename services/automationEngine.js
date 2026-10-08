@@ -183,10 +183,14 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
   const maxAlternateAttempts = 2;
 
   async function attemptReserve(candidate) {
+    const sittingKey =
+      candidate?.scheduleId && String(candidate.scheduleId).includes("@")
+        ? candidate.scheduleId
+        : candidate?.examScheduleId;
     if (
       !candidate?.examScheduleId ||
-      triedIds.has(candidate.examScheduleId) ||
-      isScheduleBlocked(candidate.examScheduleId, failedScheduleIds)
+      triedIds.has(sittingKey) ||
+      isScheduleBlocked(sittingKey, failedScheduleIds)
     ) {
       return null;
     }
@@ -229,14 +233,6 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
         wantedCategory,
         examScheduleId: candidate.examScheduleId
       });
-      return null;
-    }
-    const preferredTime = String(applicantRecord.preferredExamTime || "").trim();
-    if (
-      preferredTime &&
-      candidate.examTime &&
-      String(candidate.examTime).trim() !== preferredTime
-    ) {
       return null;
     }
     if (
@@ -318,7 +314,7 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     const liveSlots = await listLiveOpenSlotsForCategory(
       resolveAutomationLicenseCategory(applicantRecord),
       [],
-      { maxDays: 7, stopOnFirst: true }
+      { maxDays: 7, stopOnFirst: false }
     );
     for (const slot of liveSlots.slice(0, 8)) {
       const booked = await attemptReserve({

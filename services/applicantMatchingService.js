@@ -393,7 +393,7 @@ export async function processAllWaitingApplicants(options = {}) {
       if ((seatsLeft.get(schedule.scheduleId) || 0) <= 0) {
         return false;
       }
-      if (isScheduleBlocked(schedule.scheduleId, failedScheduleIds) || isScheduleBlocked(schedule.examScheduleId, failedScheduleIds)) {
+      if (isScheduleBlocked(schedule.scheduleId, failedScheduleIds)) {
         return false;
       }
       return extractLicenseCategoryToken(schedule.category) === category;
