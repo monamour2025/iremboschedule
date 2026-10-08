@@ -37,6 +37,12 @@ const { runAutomationTick } = await import("../lib/automationTick.js");
 
 try {
   const { resumeApplicantSearch } = await import("../services/applicantService.js");
+  await prisma.$executeRawUnsafe(`
+    UPDATE "Applicant"
+    SET "lastFailedScheduleId" = NULL
+    WHERE status = 'WAITING_FOR_SLOT'
+      AND "lastFailedScheduleId" IS NOT NULL
+  `);
   const resumed = await resumeApplicantSearch();
   const result = await runAutomationTick({ includeScan: true, cronScan: true, force: true });
   console.log(

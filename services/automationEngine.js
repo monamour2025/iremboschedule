@@ -2,9 +2,13 @@ import { logger } from "../lib/logger.js";
 import { isTestMode } from "../lib/automationConfig.js";
 import { withApplicantAutomationLock, markApplicantRateLimited, shouldDeferAutomation, consumeForceAutomationRun, clearAutomationCooldown } from "../lib/applicantAutomationLock.js";
 import { isApplicantHeldForBatch } from "../lib/bulkAutomationHold.js";
-import { appendFailedScheduleId } from "../lib/failedSchedules.js";
+import { appendFailedScheduleId, isTickUnbookableSchedule, rememberTickUnbookableSchedule } from "../lib/failedSchedules.js";
 import { extractIremboApplicationNumber } from "../lib/iremboApplicationNumbers.js";
-import { isIremboAlreadyRegisteredMessage, isIremboSlotUnavailableMessage } from "../lib/iremboSlotErrors.js";
+import {
+  isIremboAlreadyRegisteredMessage,
+  isIremboLeftoverCapacityMessage,
+  isIremboSlotUnavailableMessage
+} from "../lib/iremboSlotErrors.js";
 import { extractRawScheduleId } from "../lib/scheduleIds.js";
 import { examCentersMatch, isSystemExamCenter, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
 import {
@@ -190,6 +194,8 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     if (
       !candidate?.examScheduleId ||
       triedIds.has(sittingKey) ||
+      isTickUnbookableSchedule(candidate.examScheduleId) ||
+      isTickUnbookableSchedule(sittingKey) ||
       isScheduleBlocked(sittingKey, failedScheduleIds)
     ) {
       return null;
@@ -264,7 +270,12 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
       };
     } catch (error) {
       lastError = error;
-      await appendFailedScheduleId(applicantRecord.id, candidate.examScheduleId);
+      if (isIremboLeftoverCapacityMessage(error.message)) {
+        rememberTickUnbookableSchedule(candidate.examScheduleId);
+        rememberTickUnbookableSchedule(sittingKey);
+      } else {
+        await appendFailedScheduleId(applicantRecord.id, candidate.examScheduleId);
+      }
       logger.warn("Schedule reserve attempt failed", {
         applicantId: applicantRecord.id,
         examScheduleId: candidate.examScheduleId,
@@ -318,6 +329,7 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     );
     for (const slot of liveSlots.slice(0, 8)) {
       const booked = await attemptReserve({
+        scheduleId: slot.scheduleId,
         examScheduleId: slot.examScheduleId,
         examCenter: slot.center,
         examDate: slot.startDateTime,
@@ -641,7 +653,7 @@ export async function runApplicantAutomation(applicantId) {
         const failedScheduleId =
           applicantRecord.assignedScheduleId ||
           extractRawScheduleId(applicantRecord.matchedExamScheduleId);
-        if (failedScheduleId) {
+        if (failedScheduleId && !isIremboLeftoverCapacityMessage(error.message)) {
           await appendFailedScheduleId(applicantId, failedScheduleId);
         }
         if (isPickSlotApplicant(applicantRecord)) {
