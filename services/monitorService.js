@@ -119,10 +119,12 @@ export async function runScan(options = {}) {
   });
 
   let assignments = [];
-  try {
-    assignments = await processAllWaitingApplicants();
-  } catch (error) {
-    logger.error("Live slot search / application create failed after scan", { message: error.message });
+  if (!options.skipLiveMatch) {
+    try {
+      assignments = await processAllWaitingApplicants();
+    } catch (error) {
+      logger.error("Live slot search / application create failed after scan", { message: error.message });
+    }
   }
 
   if (assignments.length > 0) {
