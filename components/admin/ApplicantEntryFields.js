@@ -351,13 +351,16 @@ export function ApplicantEntryFields({
     try {
       const payload = await fetchExistingLicenseFromApi({
         nationalId: nationalIdValue,
-        fullName: row.fullName,
-        requestedLicenseCategory: row.requestedLicenseCategory
+        fullName: row.fullName
       });
       const patch = patchFromExistingLicensePayload(payload);
+      const licenseName = [patch.existingLicenseLastName, patch.existingLicenseFirstName]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
       onChange({
         ...patch,
-        fullName: patch.fullName || row.fullName,
+        fullName: patch.fullName || licenseName || row.fullName,
         existingLicenseFetchStatus: "ready",
         entityId: patch.entityId || row.entityId,
         entityIdLookupStatus: isValidEntityId(patch.entityId || row.entityId) ? "ready" : row.entityIdLookupStatus,

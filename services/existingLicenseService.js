@@ -18,6 +18,7 @@ import {
 import { logAutomationEvent } from "./automationLogService.js";
 import { cacheEntityId, tryResolveEntityIdForExistingLicense, getCachedEntityId } from "./entityIdService.js";
 import { logger } from "../lib/logger.js";
+import { hashNationalId } from "../lib/encryption.js";
 import { extractLicenseCategoryToken } from "../lib/scheduleTime.js";
 import {
   nationalIdValidationMessage,
@@ -169,8 +170,10 @@ export async function fetchAndPersistExistingLicense(applicantId, options = {}) 
     success: true
   });
 
-  await setApplicantEntityId(applicantId, result.entityId);
-  await cacheEntityId(hashNationalId(nationalId), result.entityId, result.fullName);
+  if (result.entityId) {
+    await setApplicantEntityId(applicantId, result.entityId);
+    await cacheEntityId(hashNationalId(nationalId), result.entityId, result.fullName);
+  }
 
   await logAutomationEvent({
     applicantId,

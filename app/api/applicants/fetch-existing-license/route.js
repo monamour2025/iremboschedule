@@ -23,7 +23,18 @@ export async function POST(request) {
 
     const result = await fetchExistingLicenseForNationalId({ nationalId, fullName });
     if (requestedLicenseCategory) {
-      assertRequestedCategoryAllowed(result.existingLicense.categories, requestedLicenseCategory);
+      try {
+        assertRequestedCategoryAllowed(result.existingLicense.categories, requestedLicenseCategory);
+      } catch (categoryError) {
+        return Response.json({
+          ok: true,
+          success: true,
+          entityId: result.entityId,
+          fullName: result.fullName,
+          existingLicense: result.existingLicense,
+          categoryWarning: categoryError.message
+        });
+      }
     }
 
     return Response.json({

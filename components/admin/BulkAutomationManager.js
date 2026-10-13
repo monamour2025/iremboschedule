@@ -134,7 +134,7 @@ export default function BulkAutomationManager() {
           autoStart: true,
           applicants: rows
         }),
-        timeoutMs: 20000
+        timeoutMs: 60000
       });
       const savedCount = payload.applicants?.length || rows.length;
       setSuccess(

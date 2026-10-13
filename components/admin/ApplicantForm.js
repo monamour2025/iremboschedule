@@ -114,7 +114,6 @@ export default function ApplicantForm() {
         })
       });
       setForm({ ...emptyApplicantRow });
-      setSlotSearch("");
       setSuccess(
         payload.queued
           ? "Applicant added. Automation is running in the background — open the automation queue to track progress."

@@ -483,24 +483,28 @@ export async function getExistingDrivingLicense(nationalId) {
     () =>
       queryPoliceRequest(
         "get-dl-by-national-id",
-        {},
+        { nationalId: normalizedId, nationalid: normalizedId },
         {
           nationalid: normalizedId,
           nationalId: normalizedId,
           Referer: DDL_REFERER
         },
-        { timeoutMs: lookupTimeoutMs, maxAttempts: 1 }
+        { timeoutMs: lookupTimeoutMs, maxAttempts: 2 }
       ),
     {
       label: "getExistingDrivingLicense",
-      maxRetries: 1,
-      timeoutMs: lookupTimeoutMs + 2000,
+      maxRetries: 2,
+      timeoutMs: lookupTimeoutMs + 4000,
       baseDelayMs: 400,
       retryIf: (error) => /timed out|ECONNABORTED|network|429|502|503|504/i.test(error.message)
     }
   );
 
-  const license = data?.license;
+  const license =
+    data?.license ||
+    data?.data?.license ||
+    (Array.isArray(data?.licenses) ? data.licenses[0] : null) ||
+    (data?.licenseNumber ? data : null);
   if (!license?.licenseNumber) {
     throw new Error(
       "Applicant does not appear to have an existing driving licence. Use First Licence instead."

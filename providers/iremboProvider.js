@@ -389,14 +389,20 @@ async function requestWithRetry(params, requestHeaders, attempt = 1, endpoint = 
 
     return unwrapPayload(response.data);
   } catch (error) {
+    const iremboMessage =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      "Irembo request failed";
+    const wrapped = new Error(String(iremboMessage));
     if (attempt >= maxAttempts) {
-      throw error;
+      throw wrapped;
     }
     const delayMs = 500 * attempt;
     logger.warn("Irembo request failed; retrying", {
       attempt,
       delayMs,
-      message: error.message
+      message: wrapped.message
     });
     await new Promise((resolve) => setTimeout(resolve, delayMs));
     return requestWithRetry(params, requestHeaders, attempt + 1, endpoint, options);
