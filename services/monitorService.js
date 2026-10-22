@@ -78,21 +78,10 @@ export async function runScan(options = {}) {
           scheduleId: { notIn: latestScheduleIds }
         }
       });
-    } else if (
-      scanMeta.scannedScopes.length > 0 &&
-      latestScheduleIds.length === 0 &&
-      (scanMeta.failedScopes || []).length === 0
-    ) {
-      await tx.schedule.deleteMany({
-        where: {
-          OR: scanMeta.scannedScopes.map((scope) => ({
-            category: scope.category,
-            location: scope.location
-          }))
-        }
-      });
     } else if (scanMeta.scannedScopes.length > 0 && latestScheduleIds.length === 0) {
-      logger.warn("Skipping stale schedule cleanup: scan returned zero schedules with failed scopes", {
+      // Irembo often answers GitHub runners with an empty list; keep the last known sittings
+      // so live matching still knows which dates to check (seats are re-verified live).
+      logger.warn("Skipping stale schedule cleanup: scan returned zero schedules", {
         scannedScopeCount: scanMeta.scannedScopes.length,
         failedScopeCount: (scanMeta.failedScopes || []).length
       });
