@@ -748,6 +748,27 @@ export async function findExamSchedule({
   };
 }
 
+async function loadScannedOpenDates(category) {
+  try {
+    const { prisma } = await import("../lib/db.js");
+    const rows = await prisma.schedule.findMany({
+      where: {
+        category: { equals: category, mode: "insensitive" },
+        center: { equals: SYSTEM_EXAM_CENTER, mode: "insensitive" },
+        remainingCapacity: { gt: 0 },
+        startDateTime: { gt: new Date() }
+      },
+      select: { startDateTime: true },
+      orderBy: { startDateTime: "asc" },
+      take: 200
+    });
+    return [...new Set(rows.map((row) => formatScheduleDateLocal(row.startDateTime)))].slice(0, 6);
+  } catch (error) {
+    logger.warn("Could not load scanned open dates for live lookup", { category, message: error.message });
+    return [];
+  }
+}
+
 export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = [], options = {}) {
   const category = String(licenseCategory || "")
     .trim()
@@ -761,7 +782,14 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
   for (let day = 0; day < maxDays; day += 1) {
     upcomingDates.push(formatScheduleDateLocal(new Date(Date.now() + day * 24 * 60 * 60 * 1000)));
   }
-  const dates = [...new Set(upcomingDates)];
+  // Scan-detected sitting dates can be weeks out (beyond maxDays); check them too.
+  const todayKey = formatScheduleDateLocal(new Date());
+  const hints = Array.isArray(dateHints) && dateHints.length > 0 ? dateHints : await loadScannedOpenDates(category);
+  const hintDates = hints
+    .map((hint) => (hint ? formatScheduleDateLocal(new Date(hint)) : null))
+    .filter((value) => value && value >= todayKey)
+    .sort();
+  const dates = [...new Set([...upcomingDates, ...hintDates])];
 
   const byId = new Map();
   for (const selectedDate of dates) {
