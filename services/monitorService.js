@@ -236,7 +236,6 @@ export async function listSchedules(options = {}) {
   if (options.center && !isSystemExamCenter(options.center)) {
     return [];
   }
-  where.center = { equals: SYSTEM_EXAM_CENTER, mode: "insensitive" };
 
   return prisma.schedule.findMany({
     where,

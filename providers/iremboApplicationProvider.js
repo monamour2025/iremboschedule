@@ -23,7 +23,7 @@ import {
   liveRowRemainingCapacity
 } from "../lib/scheduleTime.js";
 import { resolveIremboNotificationContact } from "../lib/iremboContact.js";
-import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION } from "../lib/examCenters.js";
+import { examCentersMatch, isSystemExamCenter, locationsMatch, SYSTEM_EXAM_CENTER, SYSTEM_EXAM_LOCATION, systemExamCenterDbWhere } from "../lib/examCenters.js";
 import { isValidNationalIdInput, normalizeNationalIdInput } from "../lib/nationalId.js";
 
 const BASE_URL = process.env.IREMBO_BASE_URL || "https://irembo.gov.rw/irembo/rest/public";
@@ -748,13 +748,15 @@ export async function findExamSchedule({
   };
 }
 
+const fallbackOpenDateByCategory = new Map();
+
 async function loadScannedOpenDates(category) {
   try {
     const { prisma } = await import("../lib/db.js");
     const rows = await prisma.schedule.findMany({
       where: {
         category: { equals: category, mode: "insensitive" },
-        center: { equals: SYSTEM_EXAM_CENTER, mode: "insensitive" },
+        ...systemExamCenterDbWhere(),
         remainingCapacity: { gt: 0 },
         startDateTime: { gt: new Date() }
       },
@@ -789,10 +791,25 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
     .map((hint) => (hint ? formatScheduleDateLocal(new Date(hint)) : null))
     .filter((value) => value && value >= todayKey)
     .sort();
-  const dates = [...new Set([...upcomingDates, ...hintDates])];
+  // No scanned dates (Irembo's list often comes back empty): walk further out day by day.
+  const fallbackDates = new Set();
+  if (hintDates.length === 0) {
+    const cached = fallbackOpenDateByCategory.get(category);
+    if (cached && cached >= todayKey) {
+      fallbackDates.add(cached);
+    }
+    const fallbackDays = Math.max(maxDays, Math.min(Number(process.env.ESTIMATE_LIVE_FALLBACK_DAYS || 45), 90));
+    for (let day = maxDays; day < fallbackDays; day += 1) {
+      fallbackDates.add(formatScheduleDateLocal(new Date(Date.now() + day * 24 * 60 * 60 * 1000)));
+    }
+  }
+  const dates = [...new Set([...upcomingDates, ...hintDates, ...fallbackDates])];
 
   const byId = new Map();
   for (const selectedDate of dates) {
+    if (byId.size > 0 && fallbackDates.has(selectedDate)) {
+      break;
+    }
     const examDate = parseIremboLocalDateTime(selectedDate, "08:00");
     if (!examDate) {
       continue;
@@ -820,6 +837,9 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
         amount: candidate.amount,
         liveRow: candidate.schedule
       });
+    }
+    if (byId.size > 0 && fallbackDates.has(selectedDate)) {
+      fallbackOpenDateByCategory.set(category, selectedDate);
     }
     if (byId.size > 0 && options.stopOnFirst !== false) {
       break;
