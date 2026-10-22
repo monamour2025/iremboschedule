@@ -42,8 +42,7 @@ import {
 import {
   createApplicationRecord,
   getLatestApplicationForApplicant,
-  updateApplicationRecord,
-  assertExamScheduleAvailableForApplicant
+  updateApplicationRecord
 } from "../services/applicationService.js";
 import { logAutomationEvent } from "../services/automationLogService.js";
 import { sendApplicationCreatedNotification } from "../services/automationNotificationService.js";
@@ -487,9 +486,8 @@ export async function runApplicantAutomation(applicantId) {
         temporaryBookingId: booking.temporaryBookingId
       });
 
+      // A sitting holds many seats; Irembo's temporary reservation already confirmed this one.
       const notificationPhone = normalizeRwandaPhone(applicantRecord.phone);
-
-      await assertExamScheduleAvailableForApplicant(applicantId, booking.examScheduleId);
 
       const created = await createDrivingLicenseApplication({
         entityId,
