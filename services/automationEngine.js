@@ -629,11 +629,13 @@ export async function runApplicantAutomation(applicantId) {
 
       if (isIremboAlreadyRegisteredMessage(error.message)) {
         const existingNumber = extractIremboApplicationNumber(error.message);
-        await clearApplicantAssignment(
+        // Irembo refuses this person on every run, so park them instead of retrying forever.
+        await setApplicantStatus(
           applicantId,
+          "FAILED_APPLICATION",
           existingNumber
-            ? `Irembo already has ${existingNumber}. Returned to estimate list — cancel or wait for expiry, then Retry.`
-            : "Irembo said this person already has an exam. Returned to estimate list."
+            ? `Irembo already has ${existingNumber} (70011). Dial *909# for the code, or cancel it on Irembo, then Retry.`
+            : "Irembo says this person is already registered for an exam (70011). Dial *909# for the code, then Retry if needed."
         );
         clearAutomationCooldown(applicantId);
         await logAutomationEvent({

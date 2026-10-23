@@ -44,10 +44,13 @@ try {
       AND "lastFailedScheduleId" IS NOT NULL
   `);
   const resumed = await resumeApplicantSearch();
-  const result = await runAutomationTick({ includeScan: true, cronScan: true, force: true });
+  // "create" (Queue page button): the admin knows seats are open, so book now without scanning.
+  const createNow = process.env.RUN_MODE === "create";
+  const result = await runAutomationTick({ includeScan: !createNow, cronScan: true, force: true });
   console.log(
     JSON.stringify({
       ok: true,
+      mode: createNow ? "create" : "scan",
       resumed: resumed.resumed || 0,
       skipped: Boolean(result.skipped),
       skipReason: result.skipReason || null,

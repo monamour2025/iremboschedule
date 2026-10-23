@@ -15,6 +15,8 @@ export default function ApplicantsList() {
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [loading, setLoading] = useState(false);
   const [holdBusy, setHoldBusy] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createRun, setCreateRun] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [editingId, setEditingId] = useState(null);
@@ -72,6 +74,51 @@ export default function ApplicantsList() {
     }, 2500);
     return () => clearInterval(timer);
   }, []);
+
+  async function loadCreateRun() {
+    try {
+      const payload = await adminFetch("/api/applicants/create-now", { timeoutMs: 15000 });
+      setCreateRun(payload.running ? payload.run : null);
+    } catch {
+      setCreateRun(null);
+    }
+  }
+
+  useEffect(() => {
+    loadCreateRun();
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) {
+        return;
+      }
+      loadCreateRun();
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  async function handleCreateApplications() {
+    if (
+      !window.confirm(
+        `Create applications now for the ${waitingCount} waiting people? Use this when you know Busanza seats are open.`
+      )
+    ) {
+      return;
+    }
+    setCreateBusy(true);
+    setError("");
+    try {
+      const payload = await adminFetch("/api/applicants/create-now", { method: "POST", body: "{}" });
+      setSuccess(
+        payload.alreadyRunning
+          ? "Applications are already being created. Codes appear in the list as they are made."
+          : "Creating applications now. It takes a few minutes; codes appear in the list as they are made."
+      );
+      await loadCreateRun();
+    } catch (createError) {
+      setError(createError.message);
+    } finally {
+      setCreateBusy(false);
+    }
+  }
 
   const categories = useMemo(() => {
     const values = new Set(applicants.map(requestedCategory).filter(Boolean));
@@ -188,9 +235,9 @@ export default function ApplicantsList() {
       <section className="animate-fade-up rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
         <p className="text-sm text-slate-700">
           Save people on the Estimate list and pick their category. Edit can move someone back (for example
-          NTWARI from B to A). The scanner keeps running. When that exact category has a future open sitting
-          at Busanza, the application is created. Category A is booked alongside the others — A seats are
-          not skipped for B.
+          NTWARI from B to A). Automatic scanning is paused: when you know Busanza seats are open, click
+          Create Application and the waiting people are booked right away, without waiting for a scan.
+          Category A is booked alongside the others — A seats are not skipped for B.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <p className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-900 ring-1 ring-red-100">
@@ -205,6 +252,14 @@ export default function ApplicantsList() {
           >
             Add
           </Link>
+          <button
+            type="button"
+            onClick={handleCreateApplications}
+            disabled={createBusy || Boolean(createRun)}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {createBusy ? "Starting..." : createRun ? "Creating applications..." : "Create Application"}
+          </button>
           <button
             type="button"
             onClick={handleResumeAll}
@@ -242,6 +297,12 @@ export default function ApplicantsList() {
               </button>
             ))}
           </div>
+        ) : null}
+        {createRun ? (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            Creating applications since {new Date(createRun.startedAt).toLocaleTimeString()} — new codes show up
+            below as they are made.
+          </p>
         ) : null}
         {error ? <p className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-900">{error}</p> : null}
         {success ? (

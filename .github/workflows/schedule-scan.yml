@@ -8,15 +8,16 @@
 name: Scheduled Scan
 
 on:
-  schedule:
-    # Several clocks: GitHub often delays a single */5 cron by hours.
-    - cron: "0 * * * *"
-    - cron: "10 * * * *"
-    - cron: "20 * * * *"
-    - cron: "30 * * * *"
-    - cron: "40 * * * *"
-    - cron: "50 * * * *"
-  workflow_dispatch: {}
+  # Automatic scans are paused. Runs start from the Queue page's "Create Application"
+  # button (mode=create) or by hand. To turn automatic scans back on, restore:
+  # schedule:
+  #   - cron: "0,10,20,30,40,50 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "create = book waiting people now without scanning first; scan = scan and book"
+        required: false
+        default: "scan"
 
 concurrency:
   group: scheduled-scan
@@ -43,6 +44,7 @@ jobs:
       RESEND_FROM: ${{ secrets.RESEND_FROM }}
       ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
       DEFAULT_IREMBO_ENTITY_ID: ${{ secrets.DEFAULT_IREMBO_ENTITY_ID }}
+      RUN_MODE: ${{ inputs.mode || 'scan' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
