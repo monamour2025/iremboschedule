@@ -10,12 +10,14 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/applicants/run-all
  *
- * Manually triggers automation for all WAITING_FOR_SLOT applicants, grouped by
- * their own licenseCategory. Each applicant is only ever booked into their own
+ * Manually triggers automation for WAITING_FOR_SLOT applicants (or specific applicantIds),
+ * grouped by their own licenseCategory. Each applicant is only ever booked into their own
  * requested category — no cross-category booking can happen.
  *
- * Optionally accepts { categories: ["A","B"] } to limit which categories to trigger.
- * If omitted, all WAITING_FOR_SLOT applicants across every category are triggered.
+ * Request body options:
+ * - { applicantIds: [123] } or { applicantId: 123 } to target specific person(s)
+ * - { categories: ["A", "B"] } to limit which categories to trigger
+ * - {} to trigger all waiting applicants
  */
 export async function POST(request) {
   try {
@@ -34,12 +36,37 @@ export async function POST(request) {
         ? body.categories.map((c) => String(c).trim().toUpperCase()).filter(Boolean)
         : null;
 
-    // Find all applicants that are waiting for a slot (not yet booked, not failed)
+    const filterApplicantIds =
+      Array.isArray(body.applicantIds) && body.applicantIds.length > 0
+        ? body.applicantIds.map(Number).filter(Number.isInteger)
+        : body.applicantId
+          ? [Number(body.applicantId)].filter(Number.isInteger)
+          : null;
+
+    if (filterApplicantIds && filterApplicantIds.length > 0) {
+      // If targeting specific person(s), reset paused or failed status so automation runs freshly
+      await prisma.applicant.updateMany({
+        where: {
+          id: { in: filterApplicantIds },
+          status: { notIn: ["APPLICATION_CREATED", "COMPLETED", "PAID"] }
+        },
+        data: { searchPaused: false, status: "WAITING_FOR_SLOT" }
+      });
+    }
+
+    const where = filterApplicantIds
+      ? {
+          id: { in: filterApplicantIds },
+          status: { notIn: ["APPLICATION_CREATED", "COMPLETED", "PAID"] }
+        }
+      : {
+          status: "WAITING_FOR_SLOT",
+          searchPaused: false
+        };
+
+    // Find target applicants
     const waiting = await prisma.applicant.findMany({
-      where: {
-        status: "WAITING_FOR_SLOT",
-        searchPaused: false
-      },
+      where,
       select: {
         id: true,
         fullName: true,
@@ -56,7 +83,9 @@ export async function POST(request) {
         triggered: 0,
         skipped: 0,
         byCategory: {},
-        message: "No applicants are currently waiting for a slot."
+        message: filterApplicantIds
+          ? "Applicant not found or already completed."
+          : "No applicants are currently waiting for a slot."
       });
     }
 
@@ -123,10 +152,11 @@ export async function POST(request) {
       }
     }
 
-    logger.info("run-all: manual Create Application triggered", {
+    logger.info("run-all: Create Application triggered", {
       triggered,
       skipped,
-      categories: Object.keys(byCategory)
+      categories: Object.keys(byCategory),
+      filterApplicantIds
     });
 
     // On Vercel flush the queue so jobs run within this request lifecycle
@@ -143,7 +173,7 @@ export async function POST(request) {
     const message =
       triggered === 0
         ? `No applicants could be queued (${skipped} skipped — already running or on cooldown).`
-        : `Triggering applications for ${triggered} of ${total} waiting applicant${triggered !== 1 ? "s" : ""} across ${Object.keys(byCategory).length} categor${Object.keys(byCategory).length !== 1 ? "ies" : "y"}. Each person is only booked into their own category.`;
+        : `Triggering application for ${triggered} applicant${triggered !== 1 ? "s" : ""} across ${Object.keys(byCategory).length} categor${Object.keys(byCategory).length !== 1 ? "ies" : "y"}. Each person is only booked into their own category.`;
 
     return Response.json({
       ok: true,

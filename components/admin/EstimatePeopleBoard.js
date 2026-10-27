@@ -18,7 +18,7 @@ export function estimateProgress(applicant) {
     status === "LICENSE_VALIDATED" ||
     status === "RUNNING"
   ) {
-    return { step: 2, key: "creating", label: "Creating application", detail: "Seats found — submitting to Irembo" };
+    return { step: 2, key: "creating", label: "Creating application", detail: "Seats found \u2014 submitting to Irembo" };
   }
   return { step: 2, key: "waiting", label: "Waiting for slot", detail: "Watching Busanza for this category" };
 }
@@ -58,6 +58,8 @@ export default function EstimatePeopleBoard({
   onRemove,
   onRetry,
   onEditCategory,
+  onCreateOne,
+  creatingId,
   editingId,
   onCancelEdit,
   title = "Queue",
@@ -73,7 +75,7 @@ export default function EstimatePeopleBoard({
         <div>
           <h2 className="text-lg font-semibold text-red-950">{title}</h2>
           <p className="text-sm text-slate-600">
-            {description || `${people.length} people · books the exact category each person requested`}
+            {description || `${people.length} people \u00b7 books the exact category each person requested`}
           </p>
         </div>
         {onRefresh ? (
@@ -94,7 +96,15 @@ export default function EstimatePeopleBoard({
           {people.map((applicant) => {
             const progress = estimateProgress(applicant);
             const category =
-              applicant.requestedLicenseCategory || applicant.licenseCategory || "—";
+              applicant.requestedLicenseCategory || applicant.licenseCategory || "\u2014";
+            const isCreatingThis = creatingId === applicant.id;
+            // Show "Create Application" only for applicants that are not already done/running
+            const canCreate =
+              onCreateOne &&
+              progress.key !== "created" &&
+              progress.key !== "creating" &&
+              !isCreatingThis;
+
             return (
               <article
                 key={applicant.id}
@@ -105,7 +115,7 @@ export default function EstimatePeopleBoard({
                     <p className="font-semibold text-slate-950">{applicant.fullName}</p>
                     <p className="text-sm text-slate-600">
                       Category {category}
-                      {applicant.phone ? ` · ${applicant.phone}` : ""}
+                      {applicant.phone ? ` \u00b7 ${applicant.phone}` : ""}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -120,6 +130,27 @@ export default function EstimatePeopleBoard({
                     >
                       {progress.label}
                     </p>
+
+                    {/* Per-row Create Application button */}
+                    {canCreate ? (
+                      <button
+                        type="button"
+                        onClick={() => onCreateOne(applicant)}
+                        disabled={isCreatingThis}
+                        className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                        title={`Create application for ${applicant.fullName} (Category ${category})`}
+                      >
+                        Create Application
+                      </button>
+                    ) : null}
+
+                    {/* Show spinner while this applicant is being triggered */}
+                    {isCreatingThis ? (
+                      <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                        Starting\u2026
+                      </span>
+                    ) : null}
+
                     {onEditCategory && editingId !== applicant.id ? (
                       <button
                         type="button"
@@ -154,9 +185,9 @@ export default function EstimatePeopleBoard({
                     className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-red-100 bg-white p-3"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      const category = event.currentTarget.category.value;
+                      const cat = event.currentTarget.category.value;
                       const phone = event.currentTarget.phone.value;
-                      onEditCategory(applicant, { category, phone });
+                      onEditCategory(applicant, { category: cat, phone });
                     }}
                   >
                     <label className="text-xs font-medium text-slate-700">
@@ -206,7 +237,10 @@ export default function EstimatePeopleBoard({
                     { step: 3, kind: "created", title: "Application created successfully" }
                   ].map((item) => {
                     const done = progress.step > item.step;
-                    const current = progress.step === item.step && progress.key !== "failed" && progress.key !== "paused";
+                    const current =
+                      progress.step === item.step &&
+                      progress.key !== "failed" &&
+                      progress.key !== "paused";
                     return (
                       <li
                         key={item.kind}

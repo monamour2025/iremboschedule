@@ -78,6 +78,7 @@ export default function ApplicantsList() {
   const [loading, setLoading] = useState(false);
   const [holdBusy, setHoldBusy] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
+  const [creatingOneId, setCreatingOneId] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -166,6 +167,34 @@ export default function ApplicantsList() {
       setError(createError.message);
     } finally {
       setCreateBusy(false);
+    }
+  }
+
+  async function handleCreateOne(applicant) {
+    const category = requestedCategory(applicant);
+    setError("");
+    setSuccess("");
+    setCreatingOneId(applicant.id);
+    try {
+      const payload = await adminFetch("/api/applicants/run-all", {
+        method: "POST",
+        body: JSON.stringify({ applicantIds: [applicant.id] })
+      });
+      if (payload.ok) {
+        const info = payload.byCategory?.[category];
+        if (info && info.triggered > 0) {
+          setSuccess(`\u2705 Creating application for ${applicant.fullName} (Category ${category}). Codes appear in the list once created.`);
+        } else {
+          setSuccess(payload.message || `Triggered application for ${applicant.fullName}.`);
+        }
+        await loadApplicants(true);
+      } else {
+        setError(payload.error || "Failed to trigger application.");
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCreatingOneId(null);
     }
   }
 
@@ -293,8 +322,8 @@ export default function ApplicantsList() {
       <section className="animate-fade-up rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
         <p className="text-sm text-slate-700">
           Save people on the Estimate list and pick their category. When you know Busanza seats are open,
-          click <strong>Create Application</strong> \u2014 the system immediately books each person into their
-          own requested category via Irembo, no scanning needed.
+          click <strong>Create Application</strong> \u2014 or click <strong>Create Application</strong> on an
+          individual person to book them directly into their requested category via Irembo.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <p className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-900 ring-1 ring-red-100">
@@ -382,6 +411,8 @@ export default function ApplicantsList() {
         onRemove={handleRemove}
         onRetry={handleRetry}
         onEditCategory={editBusy ? undefined : handleEditCategory}
+        onCreateOne={handleCreateOne}
+        creatingId={creatingOneId}
         editingId={editingId}
         onCancelEdit={() => setEditingId(null)}
       />
