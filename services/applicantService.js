@@ -1920,6 +1920,9 @@ export async function returnUncreatedQueuePeopleToWaiting() {
     if (row.status === "WAITING_FOR_SLOT") {
       continue;
     }
+    if (row.status.startsWith("FAILED") || row.status === "ALREADY_REGISTERED") {
+      continue;
+    }
     await clearApplicantAssignment(row.id, "Watching Busanza for the requested category.");
     returned += 1;
   }

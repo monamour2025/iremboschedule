@@ -7,8 +7,24 @@ export function estimateProgress(applicant) {
     return {
       step: 3,
       key: "created",
-      label: "Application created successfully",
-      detail: applicant.applicationNumber || "Code created"
+      label: "Application created",
+      detail: applicant.applicationNumber || "Application code ready"
+    };
+  }
+  if (status.startsWith("FAILED") || status === "ALREADY_REGISTERED") {
+    return {
+      step: 2,
+      key: "failed",
+      label: "Application rejected",
+      detail: applicant.lastError || "Irembo could not process this application"
+    };
+  }
+  if (applicant?.searchPaused) {
+    return {
+      step: 2,
+      key: "paused",
+      label: "Paused",
+      detail: applicant.lastError || "Search paused"
     };
   }
   if (
@@ -18,27 +34,44 @@ export function estimateProgress(applicant) {
     status === "LICENSE_VALIDATED" ||
     status === "RUNNING"
   ) {
-    return { step: 2, key: "creating", label: "Creating application", detail: "Seats found \u2014 submitting to Irembo" };
+    return {
+      step: 2,
+      key: "creating",
+      label: "Creating application...",
+      detail: applicant.lastError || "Reserving seat and submitting to Irembo..."
+    };
   }
-  return { step: 2, key: "waiting", label: "Waiting for slot", detail: "Watching Busanza for this category" };
+  return {
+    step: 2,
+    key: "ready",
+    label: "Ready to Apply",
+    detail: "Click 'Create Application' to submit to Irembo"
+  };
 }
 
 function StepIcon({ done, current, kind }) {
+  if (kind === "failed") {
+    return (
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white shadow-sm font-bold text-xs">
+        ✕
+      </span>
+    );
+  }
   if (kind === "created" && (done || current)) {
     return (
-      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white shadow-sm animate-pop">
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm animate-pop">
         ✓
       </span>
     );
   }
-  if (kind === "waiting" && current) {
+  if (kind === "creating" && current) {
     return (
       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-400 text-red-950 shadow-sm animate-soft-pulse">
         ◌
       </span>
     );
   }
-  if (done || current) {
+  if (done) {
     return (
       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm animate-pop">
         ✓
@@ -46,7 +79,7 @@ function StepIcon({ done, current, kind }) {
     );
   }
   return (
-    <span className="flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-white text-red-300">
+    <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-400 text-xs font-semibold">
       ·
     </span>
   );
@@ -98,7 +131,6 @@ export default function EstimatePeopleBoard({
             const category =
               applicant.requestedLicenseCategory || applicant.licenseCategory || "\u2014";
             const isCreatingThis = creatingId === applicant.id;
-            // Show "Create Application" only for applicants that are not already done/running
             const canCreate =
               onCreateOne &&
               progress.key !== "created" &&
@@ -125,7 +157,9 @@ export default function EstimatePeopleBoard({
                           ? "bg-emerald-50 text-emerald-800 ring-emerald-100"
                           : progress.key === "failed" || progress.key === "paused"
                             ? "bg-red-100 text-red-900 ring-red-200"
-                            : "bg-white text-red-800 ring-red-100"
+                            : progress.key === "creating"
+                              ? "bg-amber-50 text-amber-900 ring-amber-200 animate-pulse"
+                              : "bg-white text-slate-800 ring-slate-200"
                       }`}
                     >
                       {progress.label}
@@ -146,8 +180,8 @@ export default function EstimatePeopleBoard({
 
                     {/* Show spinner while this applicant is being triggered */}
                     {isCreatingThis ? (
-                      <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                        Starting\u2026
+                      <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100 animate-pulse">
+                        Submitting to Irembo\u2026
                       </span>
                     ) : null}
 
@@ -180,6 +214,7 @@ export default function EstimatePeopleBoard({
                     ) : null}
                   </div>
                 </div>
+
                 {onEditCategory && editingId === applicant.id ? (
                   <form
                     className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-red-100 bg-white p-3"
@@ -230,39 +265,69 @@ export default function EstimatePeopleBoard({
                     ) : null}
                   </form>
                 ) : null}
+
+                {/* 3-Step Flow */}
                 <ol className="mt-4 grid gap-2 sm:grid-cols-3">
                   {[
-                    { step: 1, kind: "verified", title: "Verified" },
-                    { step: 2, kind: "waiting", title: "Waiting for slot" },
-                    { step: 3, kind: "created", title: "Application created successfully" }
+                    { step: 1, kind: "verified", title: "Profile Verified" },
+                    {
+                      step: 2,
+                      kind: progress.key,
+                      title:
+                        progress.key === "failed"
+                          ? "Application rejected"
+                          : progress.key === "creating"
+                            ? "Submitting to Irembo..."
+                            : progress.key === "created"
+                              ? "Slot submitted"
+                              : "Ready to apply"
+                    },
+                    { step: 3, kind: "created", title: "Application Code" }
                   ].map((item) => {
-                    const done = progress.step > item.step;
-                    const current =
-                      progress.step === item.step &&
-                      progress.key !== "failed" &&
-                      progress.key !== "paused";
+                    const done = progress.step > item.step || (item.step === 2 && progress.key === "created");
+                    const current = progress.step === item.step;
+                    const isFailed = item.step === 2 && progress.key === "failed";
                     return (
                       <li
-                        key={item.kind}
+                        key={item.title}
                         className={`flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition ${
-                          current
-                            ? "bg-white font-semibold text-red-900 shadow-sm"
-                            : done
-                              ? "text-emerald-800"
-                              : "text-slate-400"
+                          isFailed
+                            ? "bg-red-50 font-semibold text-red-900 border border-red-200"
+                            : current
+                              ? "bg-white font-semibold text-slate-900 shadow-sm"
+                              : done
+                                ? "text-emerald-800"
+                                : "text-slate-400"
                         }`}
                       >
-                        <StepIcon done={done} current={current} kind={item.kind} />
+                        <StepIcon done={done} current={current} kind={isFailed ? "failed" : item.kind} />
                         <span>{item.title}</span>
                       </li>
                     );
                   })}
                 </ol>
+
                 {progress.step === 3 && applicant.applicationNumber ? (
-                  <p className="mt-2 font-mono text-sm text-red-800">{applicant.applicationNumber}</p>
+                  <p className="mt-2 font-mono text-sm text-emerald-800 font-semibold">
+                    Code: {applicant.applicationNumber}
+                  </p>
                 ) : null}
+
+                {/* Clear Error Notification Banner */}
                 {progress.key === "failed" || progress.key === "paused" ? (
-                  <p className="mt-2 text-sm text-red-800">{progress.detail}</p>
+                  <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                    <div className="flex items-start gap-2">
+                      <span className="text-base leading-none">⚠️</span>
+                      <div>
+                        <p className="font-semibold text-xs text-red-900 uppercase tracking-wide">
+                          {progress.key === "paused" ? "Search Paused" : "Irembo Rejection Message:"}
+                        </p>
+                        <p className="mt-1 text-xs text-red-800 leading-relaxed font-mono">
+                          {progress.detail}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 ) : null}
               </article>
             );
