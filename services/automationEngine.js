@@ -57,7 +57,15 @@ import { normalizeRwandaPhone } from "../lib/iremboContact.js";
 
 function resolveAssignedSchedule(applicantRecord) {
   if (!hasAssignedExam(applicantRecord)) {
-    throw new Error("No exam slot assigned yet. Waiting for a matching detected schedule.");
+    // Manual "Create Application" trigger: no pre-assigned slot exists yet.
+    // Return a minimal placeholder so reserveFirstAvailableSchedule can still
+    // run its live-search path and find the first open seat on Irembo.
+    return {
+      examCenter: SYSTEM_EXAM_CENTER,
+      examDate: null,
+      examTime: null,
+      manualTrigger: true
+    };
   }
 
   return {
@@ -284,10 +292,13 @@ async function reserveFirstAvailableSchedule(applicantRecord, assignedSchedule, 
     }
   }
 
-  const assignedStart = parseIremboLocalDateTime(
-    formatScheduleDateLocal(assignedSchedule.examDate),
-    String(assignedSchedule.examTime || "").slice(0, 5)
-  );
+  // When triggered manually (no pre-assigned slot), skip directly to live search.
+  const assignedStart = assignedSchedule.manualTrigger
+    ? null
+    : parseIremboLocalDateTime(
+        formatScheduleDateLocal(assignedSchedule.examDate),
+        String(assignedSchedule.examTime || "").slice(0, 5)
+      );
   const assignedIsUpcoming = assignedStart && assignedStart.getTime() > Date.now();
 
   if (assignedIsUpcoming) {

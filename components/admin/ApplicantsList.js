@@ -10,13 +10,75 @@ function requestedCategory(applicant) {
   return String(applicant?.requestedLicenseCategory || applicant?.licenseCategory || "").trim().toUpperCase();
 }
 
+/** Modal shown before firing run-all, listing how many people per category will be triggered. */
+function RunAllConfirmModal({ applicants, onConfirm, onCancel, busy }) {
+  const grouped = useMemo(() => {
+    const map = {};
+    for (const a of applicants) {
+      if (estimateProgress(a).key === "created") continue;
+      const cat = requestedCategory(a);
+      if (!cat) continue;
+      map[cat] = (map[cat] || 0) + 1;
+    }
+    return map;
+  }, [applicants]);
+
+  const categories = Object.keys(grouped).sort();
+  const total = categories.reduce((s, c) => s + grouped[c], 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-slate-900">Create Applications Now</h2>
+        <p className="mt-2 text-sm text-slate-600">
+          This will immediately trigger Irembo application creation for{" "}
+          <span className="font-semibold text-slate-900">{total} waiting</span>{" "}
+          {total === 1 ? "person" : "people"}. Each applicant is only booked into their own category.
+        </p>
+        {categories.length > 0 ? (
+          <div className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
+            {categories.map((cat) => (
+              <div key={cat} className="flex items-center justify-between px-4 py-2.5 bg-white">
+                <span className="text-sm font-medium text-slate-800">Category {cat}</span>
+                <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-800 ring-1 ring-red-100">
+                  {grouped[cat]} {grouped[cat] === 1 ? "person" : "people"}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-slate-500">No waiting applicants found.</p>
+        )}
+        <div className="mt-5 flex gap-3 justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy || total === 0}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {busy ? "Starting\u2026" : `Confirm \u2014 ${total} ${total === 1 ? "person" : "people"}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ApplicantsList() {
   const [applicants, setApplicants] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [loading, setLoading] = useState(false);
   const [holdBusy, setHoldBusy] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
-  const [createRun, setCreateRun] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [editingId, setEditingId] = useState(null);
@@ -75,44 +137,31 @@ export default function ApplicantsList() {
     return () => clearInterval(timer);
   }, []);
 
-  async function loadCreateRun() {
-    try {
-      const payload = await adminFetch("/api/applicants/create-now", { timeoutMs: 15000 });
-      setCreateRun(payload.running ? payload.run : null);
-    } catch {
-      setCreateRun(null);
-    }
-  }
-
-  useEffect(() => {
-    loadCreateRun();
-    const timer = setInterval(() => {
-      if (typeof document !== "undefined" && document.hidden) {
-        return;
-      }
-      loadCreateRun();
-    }, 10000);
-    return () => clearInterval(timer);
-  }, []);
-
   async function handleCreateApplications() {
-    if (
-      !window.confirm(
-        `Create applications now for the ${waitingCount} waiting people? Use this when you know Busanza seats are open.`
-      )
-    ) {
-      return;
-    }
     setCreateBusy(true);
     setError("");
+    setSuccess("");
+    setShowConfirm(false);
     try {
-      const payload = await adminFetch("/api/applicants/create-now", { method: "POST", body: "{}" });
-      setSuccess(
-        payload.alreadyRunning
-          ? "Applications are already being created. Codes appear in the list as they are made."
-          : "Creating applications now. It takes a few minutes; codes appear in the list as they are made."
-      );
-      await loadCreateRun();
+      const payload = await adminFetch("/api/applicants/run-all", {
+        method: "POST",
+        body: "{}"
+      });
+      if (payload.ok) {
+        const parts = [];
+        for (const [cat, info] of Object.entries(payload.byCategory || {})) {
+          if (info.triggered > 0) {
+            parts.push(`${info.triggered} Cat ${cat}`);
+          }
+        }
+        setSuccess(
+          payload.triggered === 0
+            ? payload.message || "No applicants queued \u2014 all may already be running or on cooldown."
+            : `\u2705 ${payload.message}${parts.length > 0 ? ` (${parts.join(", ")})` : ""} Codes appear in the list as they are created.`
+        );
+      } else {
+        setError(payload.error || "Failed to trigger applications.");
+      }
     } catch (createError) {
       setError(createError.message);
     } finally {
@@ -201,8 +250,8 @@ export default function ApplicantsList() {
         created
           ? `${payload.applicant.fullName}: application ${payload.applicant.applicationNumber || "created"}.`
           : matched > 0
-            ? `${applicant.fullName}: Category ${category} seats found. Creating the application…`
-            : `${applicant.fullName} is Category ${category}. No live ${category} seats yet — watching.`
+            ? `${applicant.fullName}: Category ${category} seats found. Creating the application\u2026`
+            : `${applicant.fullName} is Category ${category}. No live ${category} seats yet \u2014 watching.`
       );
       setEditingId(null);
     } catch (editError) {
@@ -229,15 +278,23 @@ export default function ApplicantsList() {
   return (
     <AdminShell
       title="Queue"
-      description="When the category you selected has a future open Busanza sitting, the application is created automatically — same path for A, B, B(AT), C, D, D1, E, and F."
+      description="When you know Busanza seats are open, click Create Application \u2014 each person is booked directly into their own category via the Irembo API."
       onSecretSaved={() => loadApplicants()}
     >
+      {showConfirm && (
+        <RunAllConfirmModal
+          applicants={applicants}
+          busy={createBusy}
+          onConfirm={handleCreateApplications}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
+
       <section className="animate-fade-up rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
         <p className="text-sm text-slate-700">
-          Save people on the Estimate list and pick their category. Edit can move someone back (for example
-          NTWARI from B to A). Automatic scanning is paused: when you know Busanza seats are open, click
-          Create Application and the waiting people are booked right away, without waiting for a scan.
-          Category A is booked alongside the others — A seats are not skipped for B.
+          Save people on the Estimate list and pick their category. When you know Busanza seats are open,
+          click <strong>Create Application</strong> \u2014 the system immediately books each person into their
+          own requested category via Irembo, no scanning needed.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <p className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-900 ring-1 ring-red-100">
@@ -254,11 +311,20 @@ export default function ApplicantsList() {
           </Link>
           <button
             type="button"
-            onClick={handleCreateApplications}
-            disabled={createBusy || Boolean(createRun)}
+            onClick={() => {
+              setError("");
+              setSuccess("");
+              setShowConfirm(true);
+            }}
+            disabled={createBusy || waitingCount === 0}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            title={
+              waitingCount === 0
+                ? "No applicants waiting"
+                : `Trigger applications for ${waitingCount} waiting people`
+            }
           >
-            {createBusy ? "Starting..." : createRun ? "Creating applications..." : "Create Application"}
+            {createBusy ? "Creating\u2026" : "Create Application"}
           </button>
           <button
             type="button"
@@ -298,12 +364,6 @@ export default function ApplicantsList() {
             ))}
           </div>
         ) : null}
-        {createRun ? (
-          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-            Creating applications since {new Date(createRun.startedAt).toLocaleTimeString()} — new codes show up
-            below as they are made.
-          </p>
-        ) : null}
         {error ? <p className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-900">{error}</p> : null}
         {success ? (
           <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{success}</p>
@@ -316,7 +376,7 @@ export default function ApplicantsList() {
       <EstimatePeopleBoard
         applicants={visible}
         title="People in queue"
-        description={`${visible.length} shown · Edit changes category (use B to test) · Delete removes the person`}
+        description={`${visible.length} shown \u00b7 Edit changes category (use B to test) \u00b7 Delete removes the person`}
         emptyMessage="Nobody in this view. Click Add, then come back here."
         onRefresh={() => loadApplicants()}
         onRemove={handleRemove}
