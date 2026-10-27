@@ -416,7 +416,7 @@ export async function runApplicantAutomation(applicantId) {
     try {
       let entityId = applicantRecord.entityId;
 
-      await setApplicantStatus(applicantId, "LICENSE_VALIDATED", null);
+      void setApplicantStatus(applicantId, "RUNNING", null);
       if (isExistingApplicant) {
         license = await resolveLicenseForApplication(applicantRecord, nationalId);
       } else if (applicantRecord.provisionalLicenseNumber) {
@@ -447,13 +447,6 @@ export async function runApplicantAutomation(applicantId) {
 
       logger.info("Using verified citizen entityId", { applicantId, entityId });
 
-      if (application?.id) {
-        await updateApplicationRecord(application.id, {
-          iremboEntityId: entityId,
-          status: "PROFILE_FETCHED"
-        });
-      }
-
       if (isExistingApplicant) {
         logger.info("Skipping provisional licence validation for add-category workflow", { applicantId });
       } else if (!applicantRecord.provisionalLicenseNumber) {
@@ -462,7 +455,6 @@ export async function runApplicantAutomation(applicantId) {
         logger.info("Skipping definitive validation; using stored provisional licence", { applicantId });
       }
 
-      await setApplicantStatus(applicantId, "RESERVING_SLOT", null);
       const booking = await reserveFirstAvailableSchedule(
         applicantRecord,
         assignedSchedule,
@@ -475,21 +467,15 @@ export async function runApplicantAutomation(applicantId) {
         );
       }
 
-      await logAutomationEvent({
+      // Fast path: log and update DB asynchronously so application submission fires instantly
+      void logAutomationEvent({
         applicantId,
         action: "RESERVE_TEMPORARY_SLOT",
         requestPayload: { examScheduleId: booking.examScheduleId },
         responsePayload: { temporaryBookingId: booking.temporaryBookingId },
         success: true
       });
-      if (application?.id) {
-        await updateApplicationRecord(application.id, {
-          examScheduleId: booking.examScheduleId,
-          temporaryBookingId: booking.temporaryBookingId,
-          status: "SLOT_RESERVED"
-        });
-      }
-      await setApplicantStatus(applicantId, "SLOT_RESERVED", null);
+      void setApplicantStatus(applicantId, "SLOT_RESERVED", null);
 
       logger.info("Submitting Irembo application", {
         applicantId,
