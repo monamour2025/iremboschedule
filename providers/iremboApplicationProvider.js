@@ -779,7 +779,7 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
     return [];
   }
 
-  const maxDays = Math.max(1, Math.min(Number(options.maxDays || 5), 14));
+  const maxDays = Math.max(1, Math.min(Number(options.maxDays || 5), 7));
   const upcomingDates = [];
   for (let day = 0; day < maxDays; day += 1) {
     upcomingDates.push(formatScheduleDateLocal(new Date(Date.now() + day * 24 * 60 * 60 * 1000)));
@@ -791,38 +791,30 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
     .map((hint) => (hint ? formatScheduleDateLocal(new Date(hint)) : null))
     .filter((value) => value && value >= todayKey)
     .sort();
-  // No scanned dates (Irembo's list often comes back empty): walk further out day by day.
-  const fallbackDates = new Set();
-  if (hintDates.length === 0) {
-    const cached = fallbackOpenDateByCategory.get(category);
-    if (cached && cached >= todayKey) {
-      fallbackDates.add(cached);
-    }
-    const fallbackDays = Math.max(maxDays, Math.min(Number(process.env.ESTIMATE_LIVE_FALLBACK_DAYS || 45), 90));
-    for (let day = maxDays; day < fallbackDays; day += 1) {
-      fallbackDates.add(formatScheduleDateLocal(new Date(Date.now() + day * 24 * 60 * 60 * 1000)));
-    }
-  }
-  const dates = [...new Set([...upcomingDates, ...hintDates, ...fallbackDates])];
+
+  // Fast parallel search across upcoming 7 days
+  const dates = [...new Set([...upcomingDates, ...hintDates])].slice(0, 7);
 
   const byId = new Map();
-  for (const selectedDate of dates) {
-    if (byId.size > 0 && fallbackDates.has(selectedDate)) {
-      break;
-    }
+  const datePromises = dates.map(async (selectedDate) => {
     const examDate = parseIremboLocalDateTime(selectedDate, "08:00");
-    if (!examDate) {
-      continue;
-    }
-    const candidates = await listLiveScheduleCandidates({
+    if (!examDate) return [];
+    return listLiveScheduleCandidates({
       licenseCategory: category,
       location: SYSTEM_EXAM_LOCATION,
       examCenter: SYSTEM_EXAM_CENTER,
       examDate,
       examTime: ""
-    });
+    }).catch(() => []);
+  });
+
+  const candidateLists = await Promise.all(datePromises);
+  for (const candidates of candidateLists) {
     for (const candidate of candidates) {
       if (!(Number(candidate.remainingCapacity) > 0) || !candidate.examScheduleId) {
+        continue;
+      }
+      if (!candidate.examDate || candidate.examDate.getTime() <= Date.now()) {
         continue;
       }
       byId.set(candidate.examScheduleId, {
@@ -838,15 +830,11 @@ export async function listLiveOpenSlotsForCategory(licenseCategory, dateHints = 
         liveRow: candidate.schedule
       });
     }
-    if (byId.size > 0 && fallbackDates.has(selectedDate)) {
-      fallbackOpenDateByCategory.set(category, selectedDate);
-    }
-    if (byId.size > 0 && options.stopOnFirst !== false) {
-      break;
-    }
   }
 
-  return [...byId.values()];
+  return [...byId.values()].sort(
+    (a, b) => new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime()
+  );
 }
 
 export async function listBookableSchedulesForApplicant(applicant, assignedSchedule) {
