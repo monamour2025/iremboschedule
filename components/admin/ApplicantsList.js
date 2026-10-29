@@ -355,14 +355,7 @@ export default function ApplicantsList() {
           >
             {createBusy ? "Creating\u2026" : "Create Application"}
           </button>
-          <button
-            type="button"
-            onClick={handleResumeAll}
-            disabled={holdBusy}
-            className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {holdBusy ? "Resuming..." : "Resume all searches"}
-          </button>
+          
         </div>
         {categories.length > 0 ? (
           <div className="mt-4 flex flex-wrap gap-2">
